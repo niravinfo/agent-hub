@@ -11,6 +11,9 @@ this repo.
 | `AGENTS.md` | Loaded automatically by both harnesses. Tells the agent which skill to use for which task. Not a README — treat it as agent-facing configuration. |
 | `skills/` | Source of truth. One directory per skill, each with a `SKILL.md` (name + description frontmatter, instructions in the body). |
 | `setup.ps1` / `setup.sh` | Installers. Make the skills discoverable by agents without editing any IDE or harness configuration. |
+| `docs/mcp.md` | MCP guide: remote Context7 + DeepWiki for OpenCode and VS Code Copilot. See [MCP servers](#mcp-servers). |
+| `mcp/` | Copy-paste MCP templates (OpenCode block, VS Code workspace file, Copilot user file). |
+| `setup-mcp.ps1` / `setup-mcp.sh` | Installers. Merge the `mcp/` templates into your user-level configs (never overwrite, always backup). |
 
 The repo deliberately ships the skills in `skills/` and never commits
 harness-specific discovery folders: the setup scripts create those locally
@@ -58,6 +61,21 @@ Edit anything under `skills/` and either re-run the script (copy mode) or do
 nothing (link mode). Add a new skill by creating `skills/<name>/SKILL.md`
 with `name` and `description` frontmatter — `name` must match the directory
 name — then re-run the script.
+
+## MCP servers
+
+Remote Context7 (library docs) and DeepWiki (public repo Q&A) — keyless by
+default, nothing hosted locally. Automatic install into your user-level
+configs (OpenCode global + Copilot user file, with backup, never overwrite):
+
+```bash
+./setup-mcp.sh          # Linux / macOS
+./setup-mcp.ps1         # Windows
+```
+
+Prefer manual setup? Copy a block from `mcp/` into your own global or project
+config. Full guide (both harnesses, API-key opt-in, troubleshooting):
+`docs/mcp.md`.
 
 ## VS Code Copilot notes
 
