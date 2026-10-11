@@ -11,7 +11,6 @@ this repo.
 | `AGENTS.md` | Loaded automatically by both harnesses. Tells the agent which skill to use for which task. Not a README — treat it as agent-facing configuration. |
 | `skills/` | Source of truth. One directory per skill, each with a `SKILL.md` (name + description frontmatter, instructions in the body). |
 | `setup.ps1` / `setup.sh` | Installers. Make the skills discoverable by agents without editing any IDE or harness configuration. |
-| `.opencode/memory/` | Local scratch space for the OpenCode memory plugin. Ignored by git; safe to delete. |
 
 The repo deliberately ships the skills in `skills/` and never commits
 harness-specific discovery folders: the setup scripts create those locally
