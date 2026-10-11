@@ -46,9 +46,8 @@ those, stop and ask.
 
 - You have a plan from superpowers:writing-plans and your human partner
   chose inline execution at the handoff.
-- Your harness has no subagent tool (see the per-platform references in
-  `../using-superpowers/references/`). Never fabricate a dispatch; run
-  the plan here.
+- Your harness has no subagent tool. Never fabricate a dispatch; run the
+  plan here.
 - Tasks are mostly independent — the same precondition as
   superpowers:subagent-driven-development.
 

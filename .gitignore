@@ -2,6 +2,7 @@
 .worktrees/
 .private-journal/
 .claude/
+.agents/
 .superpowers/
 .DS_Store
 node_modules/
