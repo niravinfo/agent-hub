@@ -9,7 +9,7 @@ description: Use when starting feature work that needs isolation from current wo
 
 Ensure work happens in an isolated workspace. Prefer your platform's native worktree tools. Fall back to manual git worktrees only when no native tool is available.
 
-**Core principle:** Detect existing isolation first. Then use native tools. Then fall back to git. Never fight the harness.
+**Core principle:** Detect existing isolation first. The user decides whether a new worktree is created at all. Then use native tools. Then fall back to git. Never fight the harness.
 
 **Announce at start:** "I'm using the using-git-worktrees skill to set up an isolated workspace."
 
@@ -30,7 +30,7 @@ BRANCH=$(git branch --show-current)
 git rev-parse --show-superproject-working-tree 2>/dev/null
 ```
 
-**If `GIT_DIR != GIT_COMMON` (and not a submodule):** You are already in a linked worktree. Skip to Step 2 (Project Setup). Do NOT create another worktree.
+**If `GIT_DIR != GIT_COMMON` (and not a submodule):** You are already in a linked worktree. Report it, then ask the user: keep working here, or create a new worktree? Reuse preserves running processes, caches, and uncommitted work — but the choice is the user's. A preference already in your instructions skips the question. Reuse → skip to Step 2 (Project Setup).
 
 Report with branch state:
 - On a branch: "Already in isolated workspace at `<path>` on branch `<name>`."
@@ -38,11 +38,11 @@ Report with branch state:
 
 **If `GIT_DIR == GIT_COMMON` (or in a submodule):** You are in a normal repo checkout.
 
-Has the user already indicated their worktree preference in your instructions? If not, ask for consent before creating a worktree:
+Ask the user — unless a preference is already in your instructions:
 
-> "Would you like me to set up an isolated worktree? It protects your current branch from changes."
+> "Create a new worktree, or work in the current directory? A worktree keeps this task off your current branch."
 
-Honor any existing declared preference without asking. If the user declines consent, work in place and skip to Step 2.
+If the user declines, work in place and skip to Step 2.
 
 ## Step 1: Create Isolated Workspace
 
@@ -60,40 +60,39 @@ Only proceed to Step 1b if you have no native worktree tool available.
 
 **Only use this if Step 1a does not apply** — you have no native worktree tool available. Create a worktree manually using git.
 
-#### Directory Selection
+#### Location Selection
 
-Follow this priority order. Explicit user preference always beats observed filesystem state.
+Worktrees live outside the repo, grouped in a sibling `<repo-name>.worktrees/` folder — the main checkout keeps `.git`. Follow this order:
 
 1. **Check your instructions for a declared worktree directory preference.** If the user has already specified one, use it without asking.
 
-2. **Check for an existing project-local worktree directory:**
+2. **Parent folder available?** Use it (also works from inside a linked worktree):
    ```bash
-   ls -d .worktrees 2>/dev/null     # Preferred (hidden)
-   ls -d worktrees 2>/dev/null      # Alternative
+   MAIN_ROOT=$(cd "$(dirname "$(git rev-parse --git-common-dir)")" && pwd -P)
+   WORKTREES_DIR="$(dirname "$MAIN_ROOT")/$(basename "$MAIN_ROOT").worktrees"
+   mkdir -p "$WORKTREES_DIR"
    ```
-   If found, use it. If both exist, `.worktrees` wins.
 
-3. **If there is no other guidance available**, default to `.worktrees/` at the project root.
+3. **No usable parent folder** (repo at filesystem root, unwritable parent, sandbox denial): ask the user where to keep this repo's worktrees. Offer a temp directory as a fallback.
 
-#### Safety Verification (project-local directories only)
+#### Branch Setup
 
-**MUST verify directory is ignored before creating worktree:**
+Ask the user (skip anything already answered in their instructions):
 
-```bash
-git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/dev/null
-```
-
-**If NOT ignored:** Add to .gitignore, commit the change, then proceed.
-
-**Why critical:** Prevents accidentally committing worktree contents to repository.
+1. **Which branch should the worktree use?**
+   - The current branch — fails if it is checked out in another worktree.
+   - A new branch. If new: **from which branch?**
+     - Default: the current branch.
+     - If the current branch may be stale, offer `origin/<base>` instead (`git fetch`, then `git status -sb`). Forking from an outdated branch bakes old code in.
 
 #### Create the Worktree
 
 ```bash
-# Determine path based on chosen location
-path="$LOCATION/$BRANCH_NAME"
+path="$WORKTREES_DIR/$BRANCH_NAME"
 
-git worktree add "$path" -b "$BRANCH_NAME"
+git worktree add "$path" "$BRANCH_NAME"              # existing branch
+git worktree add "$path" -b "$BRANCH_NAME"           # new branch from current HEAD
+git worktree add "$path" -b "$BRANCH_NAME" "$START"  # new branch from $START
 cd "$path"
 ```
 
@@ -143,15 +142,12 @@ Ready to implement <feature-name>
 
 | Situation | Action |
 |-----------|--------|
-| Already in linked worktree | Skip creation (Step 0) |
+| Already in linked worktree | Ask: reuse it or create new (Step 0) |
 | In a submodule | Treat as normal repo (Step 0 guard) |
 | Native worktree tool available | Use it (Step 1a) |
 | No native tool | Git worktree fallback (Step 1b) |
-| `.worktrees/` exists | Use it (verify ignored) |
-| `worktrees/` exists | Use it (verify ignored) |
-| Both exist | Use `.worktrees/` |
-| Neither exists | Check instruction file, then default `.worktrees/` |
-| Directory not ignored | Add to .gitignore + commit |
+| Parent folder available | `<repo>.worktrees/` in it (`mkdir -p`) |
+| No parent folder | Ask user where; temp dir as fallback |
 | Permission error on create | Sandbox fallback, work in place |
 | Tests fail during baseline | Report failures + ask |
 | No package.json/Cargo.toml | Skip dependency install |
@@ -162,6 +158,6 @@ Ready to implement <feature-name>
 |--------|---------|
 | "I'm obviously not in a worktree — no need to check" | Run Step 0. Harness-created isolation and submodules both fool eyeballing; the detection commands settle it. |
 | "`git worktree add` is quicker than hunting for a native tool" | A native tool (e.g. `EnterWorktree`) owns placement, branching, and cleanup. Bypassing it is the #1 mistake — it creates phantom state your harness can't see or manage. |
-| "The worktree directory is surely ignored already" | Run `git check-ignore`. An unignored worktree directory commits the whole tree into the repo. |
-| "Any directory name works" | Explicit instructions beat an existing project-local directory, which beats the `.worktrees/` default. |
+| "A worktree can live inside the repo root" | Worktrees go in `<repo>.worktrees/` next to the repo — outside version control, no `.gitignore` games. |
+| "Any directory name works" | Explicit instructions first, then `<repo>.worktrees/` in the repo's parent folder. |
 | "The workspace is fresh — baseline tests can wait" | A dirty baseline makes every later failure ambiguous. Run the tests now; proceeding past failures is your human partner's call. |
