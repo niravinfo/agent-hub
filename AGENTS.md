@@ -35,7 +35,6 @@ This is not negotiable. You cannot rationalize your way out of this.
 | Finishing work and deciding how to integrate it | `finishing-a-development-branch` | `skills/finishing-a-development-branch/SKILL.md` |
 | Reviewing changes, or preparing to merge | `requesting-code-review` | `skills/requesting-code-review/SKILL.md` |
 | Receiving code review feedback | `receiving-code-review` | `skills/receiving-code-review/SKILL.md` |
-| Writing or editing skills | `writing-skills` | `skills/writing-skills/SKILL.md` |
 
 ## Loading skills
 
