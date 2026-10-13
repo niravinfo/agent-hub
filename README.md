@@ -1,14 +1,12 @@
 # agent-hub
 
-Agent skills and project instructions for **OpenCode** and **VS Code GitHub
-Copilot** — no plugins required, and nothing to install besides this repo.
-Files in your global config are only written by flags you opt into.
+Agent skills for **OpenCode** and **VS Code GitHub Copilot** — no plugins required, and nothing to install besides this repo. The default install is **user level**: skills land in `~/.agents/skills` and are available in every project on the machine. Nothing is written into any repository, and files in your global config are only written by flags you opt into.
 
 ## What's in here
 
 | Path | Purpose |
 | --- | --- |
-| `AGENTS.md` | Loaded automatically by both harnesses. Tells the agent which skill to use for which task. Not a README — treat it as agent-facing configuration. |
+| `AGENTS.md` | Skill-discipline config for agents working **inside this repo**: which skill to use for which task. Read automatically when the session's working directory is this repo. The setup scripts do **not** install it anywhere — see *Always-on rules* below. |
 | `skills/` | Source of truth. One directory per skill, each with a `SKILL.md` (name + description frontmatter, instructions in the body). |
 | `setup.ps1` / `setup.sh` | Installers. Make the skills discoverable by agents without editing any IDE or harness configuration. |
 | `docs/mcp.md` | MCP guide: remote Context7 + DeepWiki for OpenCode and VS Code Copilot. See [MCP servers](#mcp-servers). |
@@ -17,8 +15,7 @@ Files in your global config are only written by flags you opt into.
 
 The repo deliberately ships the skills in `skills/` and never commits
 harness-specific discovery folders: the setup scripts create those locally
-as copies or links, so each machine decides what it wants and where. Nothing
-in your global config is modified.
+as copies or links, so each machine decides what it wants and where. By default they write to user-level locations only; your global config is touched solely by the flags you opt into.
 
 ## Setup
 
@@ -37,11 +34,10 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-The default install **copies** the skills into `~/.agents/skills`, which makes
-them available in every project: OpenCode and VS Code Copilot both
-auto-discover that folder natively, and a `~/.agents/skills` entry takes
-precedence over skills offered anywhere else on the machine. Restart any
-running agent session after setup.
+The default install **copies** the skills into `~/.agents/skills`, a
+user-level folder: OpenCode and VS Code Copilot both auto-discover that folder natively, so the skills become available in every project on the machine without touching a single repository. Restart any running agent session after setup.
+
+If skills of the same name already exist elsewhere on your machine — for example from a plugin such as `superpowers` — both copies are discovered and merge into one list. Nothing here overrides anything else; check your harness's skills list to see what actually loaded.
 
 ## Options
 
@@ -51,7 +47,7 @@ running agent session after setup.
 | `./setup.ps1 -Mode link` / `./setup.sh --mode link` | Junction / symlink instead of copy — edits to `skills/` apply immediately. Windows junctions need **no admin rights** |
 | `./setup.ps1 -Scope local` / `./setup.sh --scope local` | Install into the repo's `.agents/skills` (gitignored) instead of globally — useful for testing changes without touching your whole machine |
 | `./setup.ps1 -OpenCodeRules` / `./setup.sh --opencode-rules` | Also write `~/.config/opencode/AGENTS.md` — OpenCode's always-on global rules |
-| `./setup.ps1 -CopilotRules` / `./setup.sh --copilot-rules` | Also write `~/.copilot/copilot-instructions.md` — Copilot's user-level instructions, applied in every repository |
+| `./setup.ps1 -CopilotRules` / `./setup.sh --copilot-rules` | Also write `~/.copilot/copilot-instructions.md` — Copilot **Agent Host** user instructions. The VS Code Local agent does not read this path — see *Always-on rules* below. |
 | `./setup.ps1 -Clean` / `./setup.sh --clean` | Remove only the entries the script created (never follows links, never deletes source content) |
 
 The scripts are idempotent: re-run them any time to refresh copies or to
@@ -66,13 +62,19 @@ Skills and intent mapping are two separate problems:
 - **Intent mapping** is the discipline of loading the matching skill *before*
   starting work. Discovery alone does not force that.
 
-Each harness has exactly one always-on user-level file that can supply the
-nudge. Install only the one you need:
+Each harness has at most one always-on user-level file that can supply the nudge — and Copilot has one only in Agent Host. Install the one you need:
 
 | Flag | File written | Effect |
 | --- | --- | --- |
 | `-OpenCodeRules` / `--opencode-rules` | `~/.config/opencode/AGENTS.md` | Combined into every OpenCode session |
-| `-CopilotRules` / `--copilot-rules` | `~/.copilot/copilot-instructions.md` | Copilot personal instructions, applied in every repository |
+| `-CopilotRules` / `--copilot-rules` | `~/.copilot/copilot-instructions.md` | Copilot **Agent Host** personal instructions, applied in every repository |
+
+The two harnesses differ here, and the distinction matters:
+
+- **Copilot Agent Host** reads `~/.copilot/copilot-instructions.md`.
+- **VS Code Local agent** does not. It keeps user-level instructions in your
+  VS Code profile instead. If you use the Local agent, skip   `-CopilotRules` and add the same text through `Chat: Open Customizations`
+  → **Instructions** → user scope. Anything you already have in your profile should be copied across by hand; the script will not touch it.
 
 ```bash
 ./setup.sh --copilot-rules      # or ./setup.ps1 -CopilotRules
@@ -81,21 +83,17 @@ nudge. Install only the one you need:
 The generated file is deliberately short — one paragraph of discipline and
 nothing else. The skill descriptions are already in context through skills
 discovery, so repeating them would only bloat every prompt. It is **not** a
-copy of `AGENTS.md`, and nothing is written into any repository.
+copy of this repo's `AGENTS.md`: it carries the priority rule only, with no skill catalog and no tool mapping. That full file stays local to this repo — nothing in the setup scripts propagates it.
 
 Safety rules for these files:
 
 - They carry a `<!-- agent-hub:managed -->` marker. Existing files **without**
-  the marker are never overwritten — the script skips them and tells you, so
-  your own content is safe. Back it up and remove it first if you want the
+  the marker are never overwritten — the script skips them and tells you, so your own content is safe. Back it up and remove it first if you want the
   script's version in place.
 - Files **with** the marker are refreshed when you re-run.
 - `-Clean` (passed with the same flag) removes only the marked file.
 
-Want the repo's own `AGENTS.md` read inside a specific project? That stays
-manual and per-repo — put or link `AGENTS.md` at that repo's root. VS Code's
-Local agent needs `chat.useAgentsMdFile` enabled for it; the Copilot harness
-reads it by default.
+Want the repo's own `AGENTS.md` read inside a specific project? That stays manual and per-repo — put or link `AGENTS.md` at that repo's root. VS Code's Local agent needs `chat.useAgentsMdFile` enabled for it; the Copilot Agent Host harness reads it by default.
 
 ## Updating
 
@@ -124,18 +122,16 @@ config. Full guide (both harnesses, API-key opt-in, troubleshooting):
 - Skills load automatically when their `description` matches the task, or
   type `/<skill-name>` in chat (e.g. `/brainstorming`).
 - The Local agent additionally needs `chat.useAgentsMdFile` enabled in VS
-  Code settings to read `AGENTS.md`; the Copilot agent harness reads it by
-  default.
+  Code settings to read `AGENTS.md`; the Copilot Agent Host harness reads it by default.
 - Verify: run `Chat: Open Customizations` from the Command Palette and check
-  the **Skills** tab lists the repo's skills.
+  the **Skills** tab lists your personal skills (`~/.agents/skills`).
 
 ## OpenCode notes
 
 - Verify: start a session in the repo and use the `skill` tool, or mention
   `@brainstorming` in a prompt.
-- If you also use the upstream `superpowers@git+...` plugin, entries created
-  by this repo's script take precedence — run with `-Clean` to revert to the
-  plugin's set.
+- If you also use the upstream `superpowers@git+...` plugin, its skills and yours coexist — both are discovered, and same-named skills both appear.
+  To drop this repo's set and go back to the plugin's alone, run with  `-Clean`.
 
 ## Uninstalling
 
