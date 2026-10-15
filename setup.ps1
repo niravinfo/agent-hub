@@ -27,7 +27,9 @@
 
 .PARAMETER Scope
     global (default) - ~/.agents/skills, all projects for this user
-    local            - .agents/skills inside this repo
+    local            - .agents/skills inside this repo. Local scope installs
+                       skills only; the user-level rules files are skipped
+                       (this repo's own AGENTS.md already applies here).
 
 .PARAMETER Mode
     copy (default) - copy skill directories
@@ -326,12 +328,16 @@ function Remove-RulesTarget {
     Write-Host "  removed  $Path"
 }
 
-$installOpenCodeRules = -not $skipOpenCodeRules
-$installCopilotRules = -not $skipCopilotRules
+$installOpenCodeRules = (-not $skipOpenCodeRules) -and ($Scope -eq 'global')
+$installCopilotRules = (-not $skipCopilotRules) -and ($Scope -eq 'global')
+$localScopeNote = "Local scope: skipping user-level rules files (this repo's own AGENTS.md already applies here)."
 
 if ($Clean) {
     if ($installOpenCodeRules -or $installCopilotRules) {
         Write-Host "Cleaning always-on rules files"
+    }
+    elseif ($Scope -ne 'global') {
+        Write-Host "  $localScopeNote"
     }
     if ($installOpenCodeRules) {
         $target = Join-Path $HOME '.config/opencode/AGENTS.md'
@@ -345,6 +351,9 @@ if ($Clean) {
 else {
     if ($installOpenCodeRules -or $installCopilotRules) {
         Write-Host "Installing always-on rules files"
+    }
+    elseif ($Scope -ne 'global') {
+        Write-Host "  $localScopeNote"
     }
     if ($installOpenCodeRules) {
         $target = Join-Path $HOME '.config/opencode/AGENTS.md'

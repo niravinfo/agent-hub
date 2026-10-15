@@ -73,7 +73,7 @@ terminal is attached.
 | --- | --- |
 | `./setup.ps1` / `./setup.sh` | Copy skills into `~/.agents/skills` (all projects) |
 | `./setup.ps1 -Mode link` / `./setup.sh --mode link` | Junction / symlink instead of copy — edits to `skills/` apply immediately. Windows junctions need **no admin rights** |
-| `./setup.ps1 -Scope local` / `./setup.sh --scope local` | Install into the repo's `.agents/skills` (gitignored) instead of globally — useful for testing changes without touching your whole machine |
+| `./setup.ps1 -Scope local` / `./setup.sh --scope local` | Install into the repo's `.agents/skills` (gitignored) instead of globally — useful for testing changes without touching your whole machine. Local scope installs skills only; the user-level rules files are skipped |
 | `./setup.ps1 -Clean` / `./setup.sh --clean` | Remove only the entries the script created (never follows links, never deletes source content). Also offered in the menu |
 | `./setup.ps1 -Yes` / `./setup.sh --yes` | Answer everything with defaults, no prompts (automation/CI) |
 | `./setup.ps1 -Interactive` / `./setup.sh --interactive` | Force the guided menu (errors with no terminal) |

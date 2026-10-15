@@ -6,7 +6,9 @@
 # .agents/skills, so either scope works with zero configuration.
 #
 #   Default scope: global (~/.agents/skills) - available in every project.
-#   --scope local: .agents/skills inside this repo (gitignored).
+#   --scope local: .agents/skills inside this repo (gitignored). Local scope
+#   installs skills only; the user-level rules files are skipped because this
+#   repo's own AGENTS.md already applies here.
 #
 #   Default mode: copy. Re-run to refresh after editing ./skills.
 #   --mode link:  symlink per skill so edits apply immediately.
@@ -58,7 +60,7 @@ skip_opencode_rules=0
 skip_copilot_rules=0
 
 usage() {
-    sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -299,6 +301,8 @@ install_opencode_rules=1
 install_copilot_rules=1
 if [[ $skip_opencode_rules == "1" ]]; then install_opencode_rules=0; fi
 if [[ $skip_copilot_rules == "1" ]]; then install_copilot_rules=0; fi
+if [[ "$scope" != "global" ]]; then install_opencode_rules=0; install_copilot_rules=0; fi
+local_scope_note="Local scope: skipping user-level rules files (this repo's own AGENTS.md already applies here)."
 
 if [[ $install_opencode_rules == "1" || $install_copilot_rules == "1" ]]; then
     if [[ $clean == "1" ]]; then
@@ -314,4 +318,6 @@ if [[ $install_opencode_rules == "1" || $install_copilot_rules == "1" ]]; then
         if [[ $clean == "1" ]]; then remove_managed "$HOME/.copilot/copilot-instructions.md"
         else install_rules_file "$HOME/.copilot/copilot-instructions.md"; fi
     fi
+elif [[ "$scope" != "global" ]]; then
+    echo "  $local_scope_note"
 fi
