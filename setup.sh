@@ -14,20 +14,24 @@
 #   --clean removes only entries it can prove are its own (symlinks, or
 #   directories containing a matching SKILL.md). It never follows links.
 #
+#   Interactive by default: with no selection flags, a bare ./setup.sh asks
+#   what to do (install or clean), which harness to configure (both /
+#   OpenCode / Copilot / neither), how to install skills (copy or link
+#   shortcut), and where (global or local scope). Pass any flag explicitly
+#   to skip its question; --yes answers everything with defaults
+#   (automation/CI). Prompts appear only on a real terminal; pipes and CI
+#   fall back to defaults silently.
+#
 #   Skills discovery is not intent mapping: OpenCode and VS Code Copilot both
 #   find ~/.agents/skills on their own, but neither forces the discipline of
 #   loading a matching skill before work starts. Both always-on files below
-#   are installed by default (opt out with --no-rules):
-#     --no-rules            skip both files
-#     --no-opencode-rules   skip ~/.config/opencode/AGENTS.md only
-#     --no-copilot-rules    skip ~/.copilot/copilot-instructions.md only
+#   are always installed (they are required for skills to load properly):
 #       OpenCode  ~/.config/opencode/AGENTS.md          every session
 #       Copilot   ~/.copilot/copilot-instructions.md    every repository (Agent Host;
 #                                                       Local agent uses profile storage)
 #   Existing files are never overwritten unless they carry the managed marker;
 #   --clean removes only marked ones. Plain Markdown, no frontmatter required
-#   for these always-on files (--opencode-rules / --copilot-rules are deprecated
-#   no-ops kept for backwards compatibility).
+#   for these always-on files.
 #
 # Idempotent. No dependencies beyond bash/coreutils. No sudo required.
 #
@@ -36,37 +40,40 @@
 #   ./setup.sh --mode link
 #   ./setup.sh --scope local --mode link
 #   ./setup.sh --clean
-#   ./setup.sh --no-rules
+#   ./setup.sh --yes            # answer everything with defaults (CI-safe)
 
 set -euo pipefail
 
 scope="global"
 mode="copy"
 clean=0
-no_rules=0
-no_opencode_rules=0
-no_copilot_rules=0
 opencode_rules=0
 copilot_rules=0
+yes_all=0
+interactive=0
+scope_explicit=0
+mode_explicit=0
+rules_explicit=0
+skip_opencode_rules=0
+skip_copilot_rules=0
 
 usage() {
-    sed -n '2,39p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --scope)
             [[ $# -ge 2 ]] || { echo "error: --scope needs a value" >&2; exit 2; }
-            scope="$2"; shift 2 ;;
+            scope="$2"; scope_explicit=1; shift 2 ;;
         --mode)
             [[ $# -ge 2 ]] || { echo "error: --mode needs a value" >&2; exit 2; }
-            mode="$2"; shift 2 ;;
+            mode="$2"; mode_explicit=1; shift 2 ;;
         --clean) clean=1; shift ;;
-        --no-rules) no_rules=1; shift ;;
-        --no-opencode-rules) no_opencode_rules=1; shift ;;
-        --no-copilot-rules) no_copilot_rules=1; shift ;;
-        --opencode-rules) opencode_rules=1; shift ;;
-        --copilot-rules) copilot_rules=1; shift ;;
+        --opencode-rules) opencode_rules=1; rules_explicit=1; shift ;;
+        --copilot-rules) copilot_rules=1; rules_explicit=1; shift ;;
+        --yes|--no-prompt|--non-interactive) yes_all=1; shift ;;
+        --interactive) interactive=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "error: unknown argument: $1" >&2; usage; exit 2 ;;
     esac
@@ -74,6 +81,82 @@ done
 
 case "$scope" in global|local) ;; *) echo "error: --scope must be global or local" >&2; exit 2 ;; esac
 case "$mode" in copy|link) ;; *) echo "error: --mode must be copy or link" >&2; exit 2 ;; esac
+
+can_prompt() { [[ -t 0 && -t 1 ]]; }
+
+# menu TITLE DEFAULT_INDEX OPTION... -> prints chosen index (0-based) to stdout.
+# Empty answer (or EOF) selects the default. Accepts number or option name.
+menu() {
+    local title="$1" default="$2"; shift 2
+    local opts=("$@")
+    echo "" >&2
+    echo "$title" >&2
+    local i
+    for i in "${!opts[@]}"; do
+        local mark=""
+        [[ $i == "$default" ]] && mark=" (default)"
+        echo "  [$((i+1))] ${opts[$i]}$mark" >&2
+    done
+    local answer
+    while true; do
+        printf "Select [1-%s, Enter=%s]: " "${#opts[@]}" "$((default+1))" >&2
+        if ! IFS= read -r answer; then echo "" >&2; echo "$default"; return 0; fi
+        answer="$(printf '%s' "$answer" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+        if [[ -z "$answer" ]]; then echo "$default"; return 0; fi
+        if [[ "$answer" =~ ^[0-9]+$ ]] && (( answer >= 1 && answer <= ${#opts[@]} )); then
+            echo "$((answer-1))"; return 0
+        fi
+        local low
+        low="$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')"
+        for i in "${!opts[@]}"; do
+            local opt_low short
+            opt_low="$(printf '%s' "${opts[$i]}" | tr '[:upper:]' '[:lower:]')"
+            short="${opt_low%% *}"
+            if [[ "$low" == "$opt_low" || "$low" == "$short" ]]; then
+                echo "$i"; return 0
+            fi
+        done
+        echo "  Enter 1-${#opts[@]}, a listed name, or empty for default." >&2
+    done
+}
+
+if [[ $interactive == "1" && $yes_all == "1" ]]; then
+    echo "error: cannot combine --interactive with --yes/--no-prompt" >&2; exit 2
+fi
+if [[ $interactive == "1" ]] && ! can_prompt; then
+    echo "error: --interactive requested but no terminal is attached. Run in a terminal or pass flags explicitly." >&2; exit 2
+fi
+
+quiet=0
+if [[ $yes_all == "1" ]]; then quiet=1; fi
+if [[ $interactive == "0" ]] && ! can_prompt; then quiet=1; fi
+
+if [[ $quiet == "0" ]]; then
+    if [[ $clean == "0" ]]; then
+        # No --clean flag: ask install vs clean. (A passed --clean skips this.)
+        choice="$(menu "What do you want to do?" 0 "Install skills" "Clean up installed files")"
+        if [[ "$choice" == "1" ]]; then clean=1; fi
+    fi
+    if [[ $rules_explicit == "0" ]]; then
+        if [[ $clean == "1" ]]; then
+            choice="$(menu "Which rules files apply?" 0 "Both" "OpenCode only" "Copilot only")"
+        else
+            choice="$(menu "Which harness do you want to configure?" 0 "Both (OpenCode + Copilot)" "OpenCode only" "Copilot only")"
+        fi
+        case "$choice" in
+            1) skip_copilot_rules=1 ;;
+            2) skip_opencode_rules=1 ;;
+        esac
+    fi
+    if [[ $clean == "0" && $mode_explicit == "0" ]]; then
+        choice="$(menu "How should skill files be installed?" 0 "Copy (safe snapshot; re-run to refresh)" "Link shortcut (symlink; edits apply immediately)")"
+        if [[ "$choice" == "1" ]]; then mode="link"; fi
+    fi
+    if [[ $scope_explicit == "0" ]]; then
+        choice="$(menu "Where should skills be installed?" 0 "Global (~/.agents/skills, every project)" "Local (.agents/skills in this repo only)")"
+        if [[ "$choice" == "1" ]]; then scope="local"; fi
+    fi
+fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 skills_dir="$repo_root/skills"
@@ -163,7 +246,7 @@ else
     echo "Restart any running agent session to pick them up."
 fi
 
-# --- Always-on rules (default, opt out with --no-rules) -----------------------
+# --- Always-on rules (always installed) --------------------------------------
 #
 # Skills discovery is not intent mapping: OpenCode and VS Code Copilot both
 # discover ~/.agents/skills on their own, but neither forces the discipline of
@@ -214,9 +297,8 @@ install_rules_file() {
 
 install_opencode_rules=1
 install_copilot_rules=1
-if [[ $no_rules == "1" ]]; then install_opencode_rules=0; install_copilot_rules=0; fi
-if [[ $no_opencode_rules == "1" ]]; then install_opencode_rules=0; fi
-if [[ $no_copilot_rules == "1" ]]; then install_copilot_rules=0; fi
+if [[ $skip_opencode_rules == "1" ]]; then install_opencode_rules=0; fi
+if [[ $skip_copilot_rules == "1" ]]; then install_copilot_rules=0; fi
 
 if [[ $install_opencode_rules == "1" || $install_copilot_rules == "1" ]]; then
     if [[ $clean == "1" ]]; then

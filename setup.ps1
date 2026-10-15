@@ -19,8 +19,11 @@
     The script is idempotent: re-running refreshes copies and recreates
     missing links. -Clean removes only entries it can prove are its own.
 
-    Use -NoRules (or -NoOpenCodeRules / -NoCopilotRules) to skip the
-    always-on rules files, which are installed by default.
+    Interactive by default: with no selection flags, a bare ./setup.ps1 asks
+    what to do (install or clean), which harness to configure (Both /
+    OpenCode / Copilot), how to install skills (copy or link
+    shortcut), and where (global or local scope). Pass any flag explicitly to
+    skip its question; -Yes answers everything with defaults (automation/CI).
 
 .PARAMETER Scope
     global (default) - ~/.agents/skills, all projects for this user
@@ -32,22 +35,20 @@
 
 .PARAMETER Clean
     Unlink / remove the entries this script manages from the target.
+    Offered as a menu choice in interactive mode too.
 
-.PARAMETER NoRules
-    Skip both always-on rules files (installed by default):
-    ~/.config/opencode/AGENTS.md and ~/.copilot/copilot-instructions.md.
+.PARAMETER Interactive
+    Force the guided menu even if flags were passed. Errors when no console
+    is attached (pass flags explicitly instead).
 
-.PARAMETER NoOpenCodeRules
-    Skip ~/.config/opencode/AGENTS.md only.
-
-.PARAMETER NoCopilotRules
-    Skip ~/.copilot/copilot-instructions.md only.
+.PARAMETER Yes
+    Answer every menu question with its default (both harnesses, copy,
+    global scope). For automation and CI. Alias: -NonInteractive.
 
     Rules files carry a managed marker: an existing file without the marker
     is never overwritten, and -Clean removes only marked ones.
-    -OpenCodeRules / -CopilotRules are deprecated aliases kept for
-    backwards compatibility; they no longer do anything because both files
-    are installed by default.
+    -OpenCodeRules / -CopilotRules are accepted but ignored (both rules
+    files are always installed).
 
 .EXAMPLE
     ./setup.ps1
@@ -58,9 +59,7 @@
 .EXAMPLE
     ./setup.ps1 -Clean
 .EXAMPLE
-    ./setup.ps1 -NoRules
-.EXAMPLE
-    ./setup.ps1 -NoCopilotRules
+    ./setup.ps1 -Yes
 #>
 [CmdletBinding()]
 param(
@@ -72,11 +71,10 @@ param(
 
     [switch]$Clean,
 
-    [switch]$NoRules,
+    [switch]$Interactive,
 
-    [switch]$NoOpenCodeRules,
-
-    [switch]$NoCopilotRules,
+    [Alias('NonInteractive')]
+    [switch]$Yes,
 
     [switch]$OpenCodeRules,
 
@@ -84,6 +82,74 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Test-CanPrompt {
+    try {
+        return [Environment]::UserInteractive -and (-not [Console]::IsInputRedirected) -and (-not [Console]::IsOutputRedirected)
+    }
+    catch { return $false }
+}
+
+function Read-MenuChoice {
+    param(
+        [string]$Title,
+        [string[]]$Options,
+        [int]$Default = 0
+    )
+    Write-Host ""
+    Write-Host $Title
+    for ($i = 0; $i -lt $Options.Count; $i++) {
+        $mark = if ($i -eq $Default) { " (default)" } else { "" }
+        Write-Host ("  [{0}] {1}{2}" -f ($i + 1), $Options[$i], $mark)
+    }
+    while ($true) {
+        $answer = Read-Host ("Select [1-{0}, Enter={1}]" -f $Options.Count, ($Default + 1))
+        if ([string]::IsNullOrWhiteSpace($answer)) { return $Default }
+        $answer = $answer.Trim()
+        $n = 0
+        if ([int]::TryParse($answer, [ref]$n) -and $n -ge 1 -and $n -le $Options.Count) { return ($n - 1) }
+        for ($i = 0; $i -lt $Options.Count; $i++) {
+            if ($Options[$i] -ieq $answer) { return $i }
+        }
+        Write-Host ("  Enter 1-{0}, a listed name, or empty for default." -f $Options.Count)
+    }
+}
+
+$canPrompt = Test-CanPrompt
+if ($Interactive -and $Yes) {
+    throw "Cannot combine -Interactive with -Yes/-NonInteractive."
+}
+if ($Interactive -and -not $canPrompt) {
+    throw "Interactive mode requested (-Interactive) but no console is attached. Run in a terminal or pass flags explicitly."
+}
+$quiet = $Yes -or (-not $canPrompt -and -not $Interactive)
+
+$skipOpenCodeRules = $false
+$skipCopilotRules = $false
+if (-not $quiet) {
+    if (-not $PSBoundParameters.ContainsKey('Clean')) {
+        $action = Read-MenuChoice -Title "What do you want to do?" -Options @('Install skills', 'Clean up installed files') -Default 0
+        if ($action -eq 1) { $Clean = $true }
+    }
+    if ($Clean) {
+        $harness = Read-MenuChoice -Title "Which rules files apply?" -Options @('Both', 'OpenCode only', 'Copilot only') -Default 0
+    }
+    else {
+        $harness = Read-MenuChoice -Title "Which harness do you want to configure?" -Options @('Both (OpenCode + Copilot)', 'OpenCode only', 'Copilot only') -Default 0
+    }
+    switch ($harness) {
+        1 { $skipCopilotRules = $true }
+        2 { $skipOpenCodeRules = $true }
+    }
+    if (-not $Clean -and -not $PSBoundParameters.ContainsKey('Mode')) {
+        $modeChoice = Read-MenuChoice -Title "How should skill files be installed?" -Options @('Copy (safe snapshot; re-run to refresh)', 'Link shortcut (junction; edits apply immediately)') -Default 0
+        if ($modeChoice -eq 1) { $Mode = 'link' }
+    }
+    if (-not $PSBoundParameters.ContainsKey('Scope')) {
+        $scopeChoice = Read-MenuChoice -Title "Where should skills be installed?" -Options @('Global (~/.agents/skills, every project)', 'Local (.agents/skills in this repo only)') -Default 0
+        if ($scopeChoice -eq 1) { $Scope = 'local' }
+    }
+}
 
 $RepoRoot  = $PSScriptRoot
 $SkillsDir = Join-Path $RepoRoot 'skills'
@@ -192,7 +258,7 @@ else {
     }
 }
 
-# --- Always-on rules (default, opt out with -NoRules) ------------------------
+# --- Always-on rules (always installed) -------------------------------------
 #
 # Skills discovery is not intent mapping: OpenCode and VS Code Copilot both
 # discover ~/.agents/skills on their own, but neither forces the discipline of
@@ -260,8 +326,8 @@ function Remove-RulesTarget {
     Write-Host "  removed  $Path"
 }
 
-$installOpenCodeRules = (-not $NoRules) -and (-not $NoOpenCodeRules)
-$installCopilotRules = (-not $NoRules) -and (-not $NoCopilotRules)
+$installOpenCodeRules = -not $skipOpenCodeRules
+$installCopilotRules = -not $skipCopilotRules
 
 if ($Clean) {
     if ($installOpenCodeRules -or $installCopilotRules) {

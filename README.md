@@ -1,6 +1,6 @@
 # agent-hub
 
-Agent skills for **OpenCode** and **VS Code GitHub Copilot** — no plugins required, and nothing to install besides this repo. The default install is **user level**: skills land in `~/.agents/skills` and are available in every project on the machine, plus short always-on rules files in your global config (`~/.config/opencode/AGENTS.md`, `~/.copilot/copilot-instructions.md`). Nothing is written into any repository; pass opt-out flags if you want skills only.
+Agent skills for **OpenCode** and **VS Code GitHub Copilot** — no plugins required, and nothing to install besides this repo. The default install is **user level**: skills land in `~/.agents/skills` and are available in every project on the machine, plus short always-on rules files in your global config (`~/.config/opencode/AGENTS.md`, `~/.copilot/copilot-instructions.md`). Nothing is written into any repository.
 
 ## What's in here
 
@@ -16,8 +16,7 @@ Agent skills for **OpenCode** and **VS Code GitHub Copilot** — no plugins requ
 The repo deliberately ships the skills in `skills/` and never commits
 harness-specific discovery folders: the setup scripts create those locally
 as copies or links, so each machine decides what it wants and where. Everything
-stays user-level and outside any repository; opt-out flags skip the global
-rules files if you want skills only.
+stays user-level and outside any repository.
 
 ## Setup
 
@@ -41,6 +40,33 @@ user-level folder: OpenCode and VS Code Copilot both auto-discover that folder n
 
 If skills of the same name already exist elsewhere on your machine — for example from a plugin such as `superpowers` — both copies are discovered and merge into one list. Nothing here overrides anything else; check your harness's skills list to see what actually loaded.
 
+## Interactive setup
+
+A bare run guides you — no docs needed. It asks in order: what to do
+(install or clean), which harness (`Both` / `OpenCode` / `Copilot`),
+how to install skills (`Copy` or `Link` shortcut), and where
+(`Global` or `Local` scope). Press `Enter` for the default, or type a
+number or name. Any flag you pass upfront skips its question, so
+`./setup.sh --mode link` only asks the rest.
+
+```text
+What do you want to do?
+  [1] Install skills (default)
+  [2] Clean up installed files
+Select [1-2, Enter=1]:
+Which harness do you want to configure?
+  [1] Both (OpenCode + Copilot) (default)
+  [2] OpenCode only
+  [3] Copilot only
+Select [1-3, Enter=1]:
+```
+
+Automation and CI stay safe: with no terminal attached (pipes, CI jobs)
+the scripts never prompt and use defaults silently. `-Yes` /
+`-NonInteractive` (`--yes` / `--no-prompt`) forces defaults;
+`-Interactive` (`--interactive`) forces the menu and errors when no
+terminal is attached.
+
 ## Options
 
 | Command | Effect |
@@ -48,10 +74,9 @@ If skills of the same name already exist elsewhere on your machine — for examp
 | `./setup.ps1` / `./setup.sh` | Copy skills into `~/.agents/skills` (all projects) |
 | `./setup.ps1 -Mode link` / `./setup.sh --mode link` | Junction / symlink instead of copy — edits to `skills/` apply immediately. Windows junctions need **no admin rights** |
 | `./setup.ps1 -Scope local` / `./setup.sh --scope local` | Install into the repo's `.agents/skills` (gitignored) instead of globally — useful for testing changes without touching your whole machine |
-| `./setup.ps1 -NoRules` / `./setup.sh --no-rules` | Skip both always-on rules files (installed by default) |
-| `./setup.ps1 -NoOpenCodeRules` / `./setup.sh --no-opencode-rules` | Skip `~/.config/opencode/AGENTS.md` only |
-| `./setup.ps1 -NoCopilotRules` / `./setup.sh --no-copilot-rules` | Skip `~/.copilot/copilot-instructions.md` only |
-| `./setup.ps1 -Clean` / `./setup.sh --clean` | Remove only the entries the script created (never follows links, never deletes source content) |
+| `./setup.ps1 -Clean` / `./setup.sh --clean` | Remove only the entries the script created (never follows links, never deletes source content). Also offered in the menu |
+| `./setup.ps1 -Yes` / `./setup.sh --yes` | Answer everything with defaults, no prompts (automation/CI) |
+| `./setup.ps1 -Interactive` / `./setup.sh --interactive` | Force the guided menu (errors with no terminal) |
 
 The scripts are idempotent: re-run them any time to refresh copies or to
 repair links.
@@ -66,29 +91,30 @@ Skills and intent mapping are two separate problems:
   starting work. Discovery alone does not force that. The default install
   writes both harnesses' always-on files for you — no flags needed:
 
-| File written | Effect | Skip flag |
-| --- | --- | --- |
-| `~/.config/opencode/AGENTS.md` | Combined into every OpenCode session | `-NoOpenCodeRules` / `--no-opencode-rules` |
-| `~/.copilot/copilot-instructions.md` | Copilot **Agent Host** personal instructions, applied in every repository | `-NoCopilotRules` / `--no-copilot-rules` |
+| File written | Effect |
+| --- | --- |
+| `~/.config/opencode/AGENTS.md` | Combined into every OpenCode session |
+| `~/.copilot/copilot-instructions.md` | Copilot **Agent Host** personal instructions, applied in every repository |
 
-Pass `-NoRules` / `--no-rules` to skip both.
+Both are always installed — they are required for skills to load properly.
 
 The two harnesses differ here, and the distinction matters:
 
 - **Copilot Agent Host** reads `~/.copilot/copilot-instructions.md`.
 - **VS Code Local agent** does not. It keeps user-level instructions in your
-  VS Code profile instead. If you use the Local agent, pass `-NoCopilotRules` /
-  `--no-copilot-rules` and add the same text through `Chat: Open Customizations`
+  VS Code profile instead. If you use the Local agent, pick `Copilot` in the
+  harness menu anyway (the Agent Host file does no harm) and add the same text
+  through `Chat: Open Customizations`
   → **Instructions** → user scope. Anything you already have in your profile should be copied across by hand; the script will not touch it.
 
 ```powershell
-./setup.ps1                  # default: skills + both rules files
-./setup.ps1 -NoCopilotRules  # Local-agent users: OpenCode rules only
+./setup.ps1                  # guided menu: harness, copy/link, scope
+./setup.ps1 -Yes             # same, silent with defaults (CI-safe)
 ```
 
 ```bash
-./setup.sh                         # default: skills + both rules files
-./setup.sh --no-copilot-rules      # Local-agent users: OpenCode rules only
+./setup.sh                   # guided menu: harness, copy/link, scope
+./setup.sh --yes             # same, silent with defaults (CI-safe)
 ```
 
 The generated file is deliberately short — one paragraph of discipline and
@@ -103,10 +129,7 @@ Safety rules for these files:
   the marker are never overwritten — the script skips them and tells you, so your own content is safe. Back it up and remove it first if you want the
   script's version in place.
 - Files **with** the marker are refreshed when you re-run.
-- `-Clean` / `--clean` removes only the marked files (skipped ones are left alone;
-  pass the same `-No*` / `--no-*` flags to skip cleaning one side).
-- `-OpenCodeRules` / `-CopilotRules` (`--opencode-rules` / `--copilot-rules`)
-  are deprecated no-ops kept so old commands keep working.
+- `-Clean` / `--clean` removes only the marked files.
 
 Want the repo's own `AGENTS.md` read inside a specific project? That stays manual and per-repo — put or link `AGENTS.md` at that repo's root. VS Code's Local agent needs `chat.useAgentsMdFile` enabled for it; the Copilot Agent Host harness reads it by default.
 
