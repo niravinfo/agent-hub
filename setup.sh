@@ -16,13 +16,18 @@
 #
 #   Skills discovery is not intent mapping: OpenCode and VS Code Copilot both
 #   find ~/.agents/skills on their own, but neither forces the discipline of
-#   loading a matching skill before work starts. Two opt-in flags install the
-#   single always-on file each harness supports:
-#     --opencode-rules  ~/.config/opencode/AGENTS.md          every session
-#     --copilot-rules   ~/.copilot/copilot-instructions.md    every repository
-#   Install only the one for the harness you use. Existing files are never
-#   overwritten unless they carry the managed marker; --clean removes only
-#   marked ones.
+#   loading a matching skill before work starts. Both always-on files below
+#   are installed by default (opt out with --no-rules):
+#     --no-rules            skip both files
+#     --no-opencode-rules   skip ~/.config/opencode/AGENTS.md only
+#     --no-copilot-rules    skip ~/.copilot/copilot-instructions.md only
+#       OpenCode  ~/.config/opencode/AGENTS.md          every session
+#       Copilot   ~/.copilot/copilot-instructions.md    every repository (Agent Host;
+#                                                       Local agent uses profile storage)
+#   Existing files are never overwritten unless they carry the managed marker;
+#   --clean removes only marked ones. Plain Markdown, no frontmatter required
+#   for these always-on files (--opencode-rules / --copilot-rules are deprecated
+#   no-ops kept for backwards compatibility).
 #
 # Idempotent. No dependencies beyond bash/coreutils. No sudo required.
 #
@@ -31,18 +36,21 @@
 #   ./setup.sh --mode link
 #   ./setup.sh --scope local --mode link
 #   ./setup.sh --clean
-#   ./setup.sh --copilot-rules
+#   ./setup.sh --no-rules
 
 set -euo pipefail
 
 scope="global"
 mode="copy"
 clean=0
+no_rules=0
+no_opencode_rules=0
+no_copilot_rules=0
 opencode_rules=0
 copilot_rules=0
 
 usage() {
-    sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,39p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -54,6 +62,9 @@ while [[ $# -gt 0 ]]; do
             [[ $# -ge 2 ]] || { echo "error: --mode needs a value" >&2; exit 2; }
             mode="$2"; shift 2 ;;
         --clean) clean=1; shift ;;
+        --no-rules) no_rules=1; shift ;;
+        --no-opencode-rules) no_opencode_rules=1; shift ;;
+        --no-copilot-rules) no_copilot_rules=1; shift ;;
         --opencode-rules) opencode_rules=1; shift ;;
         --copilot-rules) copilot_rules=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -152,7 +163,7 @@ else
     echo "Restart any running agent session to pick them up."
 fi
 
-# --- Always-on rules (opt-in, --opencode-rules / --copilot-rules) -------------
+# --- Always-on rules (default, opt out with --no-rules) -----------------------
 #
 # Skills discovery is not intent mapping: OpenCode and VS Code Copilot both
 # discover ~/.agents/skills on their own, but neither forces the discipline of
@@ -160,11 +171,13 @@ fi
 # always-on user-level file that can supply that nudge:
 #
 #   OpenCode  ~/.config/opencode/AGENTS.md          (combined into every session)
-#   Copilot   ~/.copilot/copilot-instructions.md    (personal, every repository)
+#   Copilot   ~/.copilot/copilot-instructions.md    (Agent Host personal, every repository;
+#                                                    VS Code Local agent uses profile storage instead)
 #
-# Install only the one for the harness you use. Both files carry the managed
-# marker: an existing file without it is never overwritten, and --clean removes
-# only marked ones.
+# Both files are installed by default. Both carry the managed marker: an
+# existing file without it is never overwritten, and --clean removes only
+# marked ones. Plain Markdown, no frontmatter required for these always-on
+# files (frontmatter is only for *.instructions.md).
 
 # Short and harness-neutral. Deliberately tiny: the skill descriptions are
 # already in context through skills discovery, so this file must not repeat
@@ -199,20 +212,24 @@ install_rules_file() {
     echo "  installed $path"
 }
 
-if [[ $opencode_rules == "1" || $copilot_rules == "1" ]]; then
+install_opencode_rules=1
+install_copilot_rules=1
+if [[ $no_rules == "1" ]]; then install_opencode_rules=0; install_copilot_rules=0; fi
+if [[ $no_opencode_rules == "1" ]]; then install_opencode_rules=0; fi
+if [[ $no_copilot_rules == "1" ]]; then install_copilot_rules=0; fi
+
+if [[ $install_opencode_rules == "1" || $install_copilot_rules == "1" ]]; then
     if [[ $clean == "1" ]]; then
         echo "Cleaning always-on rules files"
     else
         echo "Installing always-on rules files"
     fi
-    if [[ $opencode_rules == "1" ]]; then
+    if [[ $install_opencode_rules == "1" ]]; then
         if [[ $clean == "1" ]]; then remove_managed "$HOME/.config/opencode/AGENTS.md"
         else install_rules_file "$HOME/.config/opencode/AGENTS.md"; fi
     fi
-    if [[ $copilot_rules == "1" ]]; then
+    if [[ $install_copilot_rules == "1" ]]; then
         if [[ $clean == "1" ]]; then remove_managed "$HOME/.copilot/copilot-instructions.md"
         else install_rules_file "$HOME/.copilot/copilot-instructions.md"; fi
     fi
-elif [[ $clean == "1" ]]; then
-    echo "Note: pass --opencode-rules or --copilot-rules alongside --clean to also remove an installed rules file."
 fi

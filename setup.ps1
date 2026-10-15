@@ -19,8 +19,8 @@
     The script is idempotent: re-running refreshes copies and recreates
     missing links. -Clean removes only entries it can prove are its own.
 
-    Use -OpenCodeRules or -CopilotRules to additionally install the one
-    always-on rules file for the harness you use.
+    Use -NoRules (or -NoOpenCodeRules / -NoCopilotRules) to skip the
+    always-on rules files, which are installed by default.
 
 .PARAMETER Scope
     global (default) - ~/.agents/skills, all projects for this user
@@ -33,18 +33,21 @@
 .PARAMETER Clean
     Unlink / remove the entries this script manages from the target.
 
-.PARAMETER OpenCodeRules
-    Also write ~/.config/opencode/AGENTS.md, OpenCode's always-on global
-    rules file. A short, generated nudge that establishes loading a matching
-    skill from ~/.agents/skills before starting work.
+.PARAMETER NoRules
+    Skip both always-on rules files (installed by default):
+    ~/.config/opencode/AGENTS.md and ~/.copilot/copilot-instructions.md.
 
-.PARAMETER CopilotRules
-    Also write ~/.copilot/copilot-instructions.md, VS Code Copilot's
-    user-level instructions, applied in every repository. Same short
-    generated content as -OpenCodeRules.
+.PARAMETER NoOpenCodeRules
+    Skip ~/.config/opencode/AGENTS.md only.
 
-    Both flags manage marked files: an existing file without the managed
-    marker is never overwritten, and -Clean removes only marked ones.
+.PARAMETER NoCopilotRules
+    Skip ~/.copilot/copilot-instructions.md only.
+
+    Rules files carry a managed marker: an existing file without the marker
+    is never overwritten, and -Clean removes only marked ones.
+    -OpenCodeRules / -CopilotRules are deprecated aliases kept for
+    backwards compatibility; they no longer do anything because both files
+    are installed by default.
 
 .EXAMPLE
     ./setup.ps1
@@ -55,9 +58,9 @@
 .EXAMPLE
     ./setup.ps1 -Clean
 .EXAMPLE
-    ./setup.ps1 -OpenCodeRules
+    ./setup.ps1 -NoRules
 .EXAMPLE
-    ./setup.ps1 -CopilotRules
+    ./setup.ps1 -NoCopilotRules
 #>
 [CmdletBinding()]
 param(
@@ -68,6 +71,12 @@ param(
     [string]$Mode = 'copy',
 
     [switch]$Clean,
+
+    [switch]$NoRules,
+
+    [switch]$NoOpenCodeRules,
+
+    [switch]$NoCopilotRules,
 
     [switch]$OpenCodeRules,
 
@@ -183,7 +192,7 @@ else {
     }
 }
 
-# --- Always-on rules (opt-in, -OpenCodeRules / -CopilotRules) -----------------
+# --- Always-on rules (default, opt out with -NoRules) ------------------------
 #
 # Skills discovery is not intent mapping: OpenCode and VS Code Copilot both
 # discover ~/.agents/skills on their own, but neither forces the discipline of
@@ -191,11 +200,13 @@ else {
 # always-on user-level file that can supply that nudge:
 #
 #   OpenCode  ~/.config/opencode/AGENTS.md          (combined into every session)
-#   Copilot   ~/.copilot/copilot-instructions.md    (personal, every repository)
+#   Copilot   ~/.copilot/copilot-instructions.md    (Agent Host personal, every repository;
+#                                                    VS Code Local agent uses profile storage instead)
 #
-# Install only the one for the harness you use. Both files carry the managed
-# marker: an existing file without it is never overwritten, and -Clean removes
-# only marked ones.
+# Both files are installed by default. Both carry the managed marker: an
+# existing file without it is never overwritten, and -Clean removes only
+# marked ones. Plain Markdown, no frontmatter required for these always-on
+# files (frontmatter is only for *.instructions.md).
 
 $Marker = '<!-- agent-hub:managed -->'
 
@@ -249,19 +260,32 @@ function Remove-RulesTarget {
     Write-Host "  removed  $Path"
 }
 
-if ($OpenCodeRules -or $CopilotRules) {
-    if ($Clean) { Write-Host "Cleaning always-on rules files" }
-    else { Write-Host "Installing always-on rules files" }
+$installOpenCodeRules = (-not $NoRules) -and (-not $NoOpenCodeRules)
+$installCopilotRules = (-not $NoRules) -and (-not $NoCopilotRules)
 
-    if ($OpenCodeRules) {
-        $target = Join-Path $HOME '.config/opencode/AGENTS.md'
-        if ($Clean) { Remove-RulesTarget $target } else { Install-RulesTarget $target }
+if ($Clean) {
+    if ($installOpenCodeRules -or $installCopilotRules) {
+        Write-Host "Cleaning always-on rules files"
     }
-    if ($CopilotRules) {
+    if ($installOpenCodeRules) {
+        $target = Join-Path $HOME '.config/opencode/AGENTS.md'
+        Remove-RulesTarget $target
+    }
+    if ($installCopilotRules) {
         $target = Join-Path $HOME '.copilot/copilot-instructions.md'
-        if ($Clean) { Remove-RulesTarget $target } else { Install-RulesTarget $target }
+        Remove-RulesTarget $target
     }
 }
-elseif ($Clean) {
-    Write-Host "Note: pass -OpenCodeRules or -CopilotRules alongside -Clean to also remove an installed rules file."
+else {
+    if ($installOpenCodeRules -or $installCopilotRules) {
+        Write-Host "Installing always-on rules files"
+    }
+    if ($installOpenCodeRules) {
+        $target = Join-Path $HOME '.config/opencode/AGENTS.md'
+        Install-RulesTarget $target
+    }
+    if ($installCopilotRules) {
+        $target = Join-Path $HOME '.copilot/copilot-instructions.md'
+        Install-RulesTarget $target
+    }
 }
