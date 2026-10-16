@@ -27,9 +27,9 @@
 
 .PARAMETER Scope
     global (default) - ~/.agents/skills, all projects for this user
-    local            - .agents/skills inside this repo. Local scope installs
-                       skills only; the user-level rules files are skipped
-                       (this repo's own AGENTS.md already applies here).
+    local            - .agents/skills plus an AGENTS.md copy inside one
+                       project folder (you are asked for the path; this repo
+                       is the default). User-level rules files are skipped.
 
 .PARAMETER Mode
     copy (default) - copy skill directories
@@ -126,6 +126,9 @@ if ($Interactive -and -not $canPrompt) {
 }
 $quiet = $Yes -or (-not $canPrompt -and -not $Interactive)
 
+$RepoRoot  = $PSScriptRoot
+$SkillsDir = Join-Path $RepoRoot 'skills'
+
 $skipOpenCodeRules = $false
 $skipCopilotRules = $false
 if (-not $quiet) {
@@ -148,14 +151,27 @@ if (-not $quiet) {
         if ($modeChoice -eq 1) { $Mode = 'link' }
     }
     if (-not $PSBoundParameters.ContainsKey('Scope')) {
-        $scopeChoice = Read-MenuChoice -Title "Where should skills be installed?" -Options @('Global (~/.agents/skills, every project)', 'Local (.agents/skills in this repo only)') -Default 0
+        $scopeChoice = Read-MenuChoice -Title "Where should skills be installed?" -Options @('Global (~/.agents/skills, every project)', 'Local (a single project folder)') -Default 0
         if ($scopeChoice -eq 1) { $Scope = 'local' }
+    }
+    $LocalTarget = $RepoRoot
+    if ((-not $quiet) -and ($Scope -eq 'local')) {
+        while ($true) {
+            $answer = Read-Host ("Target project path [Enter=$RepoRoot]")
+            if ([string]::IsNullOrWhiteSpace($answer)) { break }
+            $candidate = $answer.Trim()
+            if (-not [System.IO.Path]::IsPathRooted($candidate)) {
+                $candidate = Join-Path $RepoRoot $candidate
+            }
+            try { $candidate = [System.IO.Path]::GetFullPath($candidate) } catch { $candidate = $null }
+            if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Container)) { $LocalTarget = $candidate; break }
+            Write-Host "  Directory not found. Enter an existing folder or empty for default."
+        }
     }
 }
 
-$RepoRoot  = $PSScriptRoot
-$SkillsDir = Join-Path $RepoRoot 'skills'
-$TargetDir = if ($Scope -eq 'global') { Join-Path $HOME '.agents\skills' } else { Join-Path $RepoRoot '.agents\skills' }
+$TargetDir = if ($Scope -eq 'global') { Join-Path $HOME '.agents\skills' } else { Join-Path $LocalTarget '.agents\skills' }
+$TemplateAgents = Join-Path $RepoRoot 'setup\AGENTS.md'
 
 function Test-IsLink {
     param([string]$Path)
@@ -256,8 +272,13 @@ else {
         Write-Host "They are now available in every project for this user. Restart any running agent session to pick them up."
     }
     else {
-        Write-Host "They are now available in this repo only. Restart any running agent session to pick them up."
+        Write-Host "They are now available at the target project only. Restart any running agent session to pick them up."
     }
+}
+
+if ($Scope -eq 'local') {
+    if ($Clean) { Remove-ProjectAgents -Target $LocalTarget -Template $TemplateAgents }
+    else { Install-ProjectAgents -Target $LocalTarget -Template $TemplateAgents }
 }
 
 # --- Always-on rules (always installed) -------------------------------------
@@ -328,9 +349,48 @@ function Remove-RulesTarget {
     Write-Host "  removed  $Path"
 }
 
+function Install-ProjectAgents {
+    param([string]$Target, [string]$Template)
+    $dst = Join-Path $Target 'AGENTS.md'
+    if (-not (Test-Path -LiteralPath $Template)) {
+        Write-Warning "template not found: $Template - skipping project AGENTS.md"
+        return
+    }
+    if (Test-Path -LiteralPath $dst) {
+        $have = Get-Content -LiteralPath $dst -Raw
+        $want = Get-Content -LiteralPath $Template -Raw
+        if ($have -ceq $want) {
+            Copy-Item -LiteralPath $Template -Destination $dst -Force
+            Write-Host "  refreshed $dst"
+        }
+        else {
+            Write-Warning "skipped $dst - exists and differs from the template (merge by hand if you want the template version)"
+        }
+        return
+    }
+    Copy-Item -LiteralPath $Template -Destination $dst -Force
+    Write-Host "  installed $dst"
+}
+
+function Remove-ProjectAgents {
+    param([string]$Target, [string]$Template)
+    $dst = Join-Path $Target 'AGENTS.md'
+    if (-not (Test-Path -LiteralPath $dst)) { return }
+    if (-not (Test-Path -LiteralPath $Template)) { return }
+    $have = Get-Content -LiteralPath $dst -Raw
+    $want = Get-Content -LiteralPath $Template -Raw
+    if ($have -ceq $want) {
+        Remove-Item -LiteralPath $dst -Force
+        Write-Host "  removed  $dst"
+    }
+    else {
+        Write-Warning "kept $dst - differs from the template"
+    }
+}
+
 $installOpenCodeRules = (-not $skipOpenCodeRules) -and ($Scope -eq 'global')
 $installCopilotRules = (-not $skipCopilotRules) -and ($Scope -eq 'global')
-$localScopeNote = "Local scope: skipping user-level rules files (this repo's own AGENTS.md already applies here)."
+$localScopeNote = "Local scope: user-level rules files not touched (project AGENTS.md installed at the target instead)."
 
 if ($Clean) {
     if ($installOpenCodeRules -or $installCopilotRules) {

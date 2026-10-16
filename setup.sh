@@ -6,9 +6,10 @@
 # .agents/skills, so either scope works with zero configuration.
 #
 #   Default scope: global (~/.agents/skills) - available in every project.
-#   --scope local: .agents/skills inside this repo (gitignored). Local scope
-#   installs skills only; the user-level rules files are skipped because this
-#   repo's own AGENTS.md already applies here.
+#   --scope local: .agents/skills plus an AGENTS.md copy inside one project
+#   folder (you are asked for the path; this repo is the default). Local
+#   scope never touches user-level files; an existing AGENTS.md that differs
+#   from the setup/AGENTS.md template is left alone.
 #
 #   Default mode: copy. Re-run to refresh after editing ./skills.
 #   --mode link:  symlink per skill so edits apply immediately.
@@ -60,7 +61,7 @@ skip_opencode_rules=0
 skip_copilot_rules=0
 
 usage() {
-    sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -133,6 +134,11 @@ quiet=0
 if [[ $yes_all == "1" ]]; then quiet=1; fi
 if [[ $interactive == "0" ]] && ! can_prompt; then quiet=1; fi
 
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+skills_dir="$repo_root/skills"
+template_agents="$repo_root/setup/AGENTS.md"
+local_target="$repo_root"
+
 if [[ $quiet == "0" ]]; then
     if [[ $clean == "0" ]]; then
         # No --clean flag: ask install vs clean. (A passed --clean skips this.)
@@ -155,17 +161,27 @@ if [[ $quiet == "0" ]]; then
         if [[ "$choice" == "1" ]]; then mode="link"; fi
     fi
     if [[ $scope_explicit == "0" ]]; then
-        choice="$(menu "Where should skills be installed?" 0 "Global (~/.agents/skills, every project)" "Local (.agents/skills in this repo only)")"
+        choice="$(menu "Where should skills be installed?" 0 "Global (~/.agents/skills, every project)" "Local (a single project folder)")"
         if [[ "$choice" == "1" ]]; then scope="local"; fi
+    fi
+    if [[ "$scope" == "local" ]]; then
+        while true; do
+            printf "Target project path? [Enter=%s]: " "$repo_root" >&2
+            if ! IFS= read -r answer; then echo "" >&2; break; fi
+            answer="$(printf '%s' "$answer" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            if [[ -z "$answer" ]]; then break; fi
+            case "$answer" in ~*) answer="${answer/#\~/$HOME}" ;; esac
+            case "$answer" in /*) candidate="$answer" ;; *) candidate="$repo_root/$answer" ;; esac
+            if [[ -d "$candidate" ]]; then local_target="$(cd "$candidate" && pwd)"; break; fi
+            echo "  Directory not found. Enter an existing folder or empty for default." >&2
+        done
     fi
 fi
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-skills_dir="$repo_root/skills"
 if [[ "$scope" == "global" ]]; then
     target_dir="$HOME/.agents/skills"
 else
-    target_dir="$repo_root/.agents/skills"
+    target_dir="$local_target/.agents/skills"
 fi
 
 [[ -d "$skills_dir" ]] || { echo "error: skills directory not found: $skills_dir" >&2; exit 1; }
@@ -192,6 +208,36 @@ remove_managed() {
         else
             echo "  skipped  $path - exists but is not a managed skill directory" >&2
         fi
+    fi
+}
+
+install_project_agents() { # $1 = target project dir
+    local dst="$1/AGENTS.md"
+    if [[ ! -f "$template_agents" ]]; then
+        echo "  skipped  project AGENTS.md - template not found: $template_agents" >&2
+        return 0
+    fi
+    if [[ -f "$dst" ]]; then
+        if cmp -s "$dst" "$template_agents"; then
+            cp "$template_agents" "$dst"
+            echo "  refreshed $dst"
+        else
+            echo "  skipped  $dst - exists and differs from the template (merge by hand if you want the template version)" >&2
+        fi
+        return 0
+    fi
+    cp "$template_agents" "$dst"
+    echo "  installed $dst"
+}
+
+remove_project_agents() { # $1 = target project dir
+    local dst="$1/AGENTS.md"
+    [[ -f "$dst" && -f "$template_agents" ]] || return 0
+    if cmp -s "$dst" "$template_agents"; then
+        rm "$dst"
+        echo "  removed  $dst"
+    else
+        echo "  kept     $dst - differs from the template" >&2
     fi
 }
 
@@ -240,12 +286,17 @@ fi
 if [[ "$clean" == "1" ]]; then
     rmdir "$target_dir" 2>/dev/null || true
     if [[ "$scope" == "local" ]]; then
-        rmdir "$repo_root/.agents" 2>/dev/null || true
+        rmdir "$local_target/.agents" 2>/dev/null || true
     fi
     echo "Done: cleaned managed entries from $target_dir"
 else
     echo "Done: $count skills installed to $target_dir ($mode)."
     echo "Restart any running agent session to pick them up."
+fi
+
+if [[ "$scope" == "local" ]]; then
+    if [[ "$clean" == "1" ]]; then remove_project_agents "$local_target"
+    else install_project_agents "$local_target"; fi
 fi
 
 # --- Always-on rules (always installed) --------------------------------------
@@ -302,7 +353,8 @@ install_copilot_rules=1
 if [[ $skip_opencode_rules == "1" ]]; then install_opencode_rules=0; fi
 if [[ $skip_copilot_rules == "1" ]]; then install_copilot_rules=0; fi
 if [[ "$scope" != "global" ]]; then install_opencode_rules=0; install_copilot_rules=0; fi
-local_scope_note="Local scope: skipping user-level rules files (this repo's own AGENTS.md already applies here)."
+
+local_scope_note="Local scope: user-level rules files not touched (project AGENTS.md installed at the target instead)."
 
 if [[ $install_opencode_rules == "1" || $install_copilot_rules == "1" ]]; then
     if [[ $clean == "1" ]]; then

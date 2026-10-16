@@ -4,6 +4,9 @@
 .claude/
 .agents/
 .superpowers/
+
+# Local-setup copy of the setup/AGENTS.md template (regenerated on demand).
+/AGENTS.md
 .DS_Store
 node_modules/
 inspo
