@@ -1,4 +1,5 @@
 ---
+name: Security Reviewer
 description: Reviews code for OWASP Top 10, secrets, injection, auth, and dependency risks
 mode: subagent
 permissions:

@@ -266,7 +266,7 @@ This skill is router-agnostic. The patterns above work with React Router, TanSta
 
 - Rules: [rules/react/](../../rules/react/) — coding-style, hooks, patterns, security, testing
 - Skills: [react-performance](../react-performance/SKILL.md) for the Vercel-derived performance ruleset
-- Agents: `react-reviewer` for code review, `react-build-resolver` for build/bundler errors
+- Agents: `react-reviewer` for code review
 - Commands: `/react-review`, `/react-build`, `/react-test`
 
 ## Examples

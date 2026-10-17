@@ -565,7 +565,7 @@ When the project ships React Compiler, demote `rerender-*` manual memoization ru
 
 - Skills: [react-patterns](../react-patterns/SKILL.md)
 - Rules: [rules/react/](../../rules/react/)
-- Agents: `react-reviewer` enforces these rules in code review; `react-build-resolver` handles related build failures
+- Agents: `react-reviewer` enforces these rules in code review
 - Commands: `/react-review`, `/react-build`, `/react-test`
 
 ## Attribution
