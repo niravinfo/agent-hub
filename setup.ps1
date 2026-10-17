@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Installs this repo's skills into an agent-skills discovery location.
+    Installs this repo's skills and agents into agent discovery locations.
 
 .DESCRIPTION
     Populates a skills discovery location from ./skills. OpenCode and
@@ -128,6 +128,9 @@ $quiet = $Yes -or (-not $canPrompt -and -not $Interactive)
 
 $RepoRoot  = $PSScriptRoot
 $SkillsDir = Join-Path $RepoRoot 'skills'
+# Default local target (mirrors setup.sh): a quiet/non-interactive local run
+# installs into the repo itself; the interactive prompt below may override it.
+$LocalTarget = $RepoRoot
 
 $skipOpenCodeRules = $false
 $skipCopilotRules = $false
@@ -276,11 +279,6 @@ else {
     }
 }
 
-if ($Scope -eq 'local') {
-    if ($Clean) { Remove-ProjectAgents -Target $LocalTarget -Template $TemplateAgents }
-    else { Install-ProjectAgents -Target $LocalTarget -Template $TemplateAgents }
-}
-
 # --- Always-on rules (always installed) -------------------------------------
 #
 # Skills discovery is not intent mapping: OpenCode and VS Code Copilot both
@@ -388,6 +386,14 @@ function Remove-ProjectAgents {
     }
 }
 
+# Runs here (not next to the skills loop above): PowerShell executes top-down,
+# so the Install/Remove-ProjectAgents calls must come after their definitions.
+# Same placement as setup.sh (define-before-use).
+if ($Scope -eq 'local') {
+    if ($Clean) { Remove-ProjectAgents -Target $LocalTarget -Template $TemplateAgents }
+    else { Install-ProjectAgents -Target $LocalTarget -Template $TemplateAgents }
+}
+
 $installOpenCodeRules = (-not $skipOpenCodeRules) -and ($Scope -eq 'global')
 $installCopilotRules = (-not $skipCopilotRules) -and ($Scope -eq 'global')
 $localScopeNote = "Local scope: user-level rules files not touched (project AGENTS.md installed at the target instead)."
@@ -422,5 +428,273 @@ else {
     if ($installCopilotRules) {
         $target = Join-Path $HOME '.copilot/copilot-instructions.md'
         Install-RulesTarget $target
+    }
+}
+
+# --- Agents (OpenCode + Copilot) ------------------------------------------------
+#
+# Canonical agents live in agents/<id>.md (OpenCode format: description +
+# mode: subagent + optional permissions). Each is installed per the harness
+# answer already given above (no new question): Both installs both copies,
+# OpenCode-only / Copilot-only install just theirs.
+#
+#   Global scope: OpenCode ~/.config/opencode/agents/<id>.md (verbatim) and
+#                 Copilot  ~/.copilot/agents/<id>.agent.md (converted).
+#   Local scope:  OpenCode <target>/.opencode/agents/<id>.md (verbatim) and
+#                 Copilot  <target>/.github/agents/<id>.agent.md (converted).
+#
+# The Copilot copy keeps `description`, gains a `tools:` array (architect gets
+# search/read/grep/edit since it drafts proposals; the read-only reviewers get
+# search/read/grep), and drops the OpenCode-only `mode`/`permissions` keys;
+# the body is unchanged.
+#
+# Installed file copies carry the managed marker (<!-- agent-hub:managed -->)
+# as an HTML comment line right after the frontmatter, so refresh and -Clean
+# can prove ownership: an existing file without the marker is never
+# overwritten or deleted. Link mode installs OpenCode copies as file symlinks
+# instead (the link itself is proof of ownership); Copilot copies are always
+# written files because conversion changes the bytes, so a link to the source
+# could not carry the converted frontmatter. On Windows, file symlinks may
+# need Developer Mode/admin rights; when linking fails the script falls back
+# to a copy with a warning.
+
+function Get-AgentDescription {
+    param([string]$Path)
+    $m = Select-String -LiteralPath $Path -Pattern '^description:\s*(.+)' | Select-Object -First 1
+    if ($m) { return $m.Matches[0].Groups[1].Value.Trim() }
+    return ''
+}
+
+function Get-AgentBodyLines {
+    param([string[]]$Lines)
+    # Only the leading frontmatter counts: a body line of exactly --- (e.g. a
+    # Markdown rule) must be kept. Files without leading frontmatter pass
+    # through unchanged.
+    $marks = @()
+    for ($i = 0; $i -lt $Lines.Count -and $marks.Count -lt 2; $i++) {
+        if ($Lines[$i] -eq '---') { $marks += $i }
+    }
+    if ($marks.Count -eq 2 -and $marks[0] -eq 0) {
+        if ($marks[1] + 1 -ge $Lines.Count) { return @() }
+        return $Lines[($marks[1] + 1)..($Lines.Count - 1)]
+    }
+    return $Lines
+}
+
+function Get-AgentTools {
+    param([string]$Id)
+    if ($Id -eq 'architect') { return "['search', 'read', 'grep', 'edit']" }
+    return "['search', 'read', 'grep']"
+}
+
+function Test-AgentDstReady {
+    param([string]$Dst)
+    # Get-Item -Force (not Test-Path) so a dangling symlink is seen and
+    # replaced instead of written through to a resurrected target path.
+    $item = Get-Item -LiteralPath $Dst -Force -ErrorAction SilentlyContinue
+    if (-not $item) { return $true }
+    if (Test-IsLink $Dst) {
+        Remove-Item -LiteralPath $Dst -Force
+        Write-Host "  unlinked $Dst"
+        return $true
+    }
+    $existing = Get-Content -LiteralPath $Dst -Raw
+    if ($existing -notlike "*$Marker*") {
+        Write-Warning "skipped $Dst - exists and was not created by this script (back it up and remove it first to replace it)"
+        return $false
+    }
+    return $true
+}
+
+function Remove-ManagedAgentFile {
+    param([string]$Path)
+    # Marker-aware removal for installed agent copies. Unlike
+    # Remove-ManagedEntry (built for skill directories), a plain file without
+    # the marker or link proof is never deleted.
+    if (-not (Test-Path -LiteralPath $Path)) {
+        $link = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        if (-not $link) { return }
+    }
+    if (Test-IsLink $Path) {
+        # A file symlink: Remove-Item deletes the link itself, never the target.
+        Remove-Item -LiteralPath $Path -Force
+        Write-Host "  unlinked $Path"
+        return
+    }
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.PSIsContainer) {
+        Write-Warning "skipped $Path - exists but is not a managed agent file"
+        return
+    }
+    $existing = Get-Content -LiteralPath $Path -Raw
+    if ($existing -notlike "*$Marker*") {
+        Write-Warning "kept $Path - not created by this script"
+        return
+    }
+    Remove-Item -LiteralPath $Path -Force
+    Write-Host "  removed  $Path"
+}
+
+function Test-ManagedAgent {
+    param([string]$Path)
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if (-not $item) { return $false }
+    if (Test-IsLink $Path) { return $true }
+    if ($item.PSIsContainer) { return $false }
+    return ((Get-Content -LiteralPath $Path -Raw) -like "*$Marker*")
+}
+
+function Install-OpenCodeAgentCopy {
+    param([string]$Src, [string]$Dst)
+    $parent = Split-Path -Parent $Dst
+    if (-not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+    if (Test-Path -LiteralPath $Dst -PathType Container) {
+        Write-Warning "skipped $Dst - exists but is not a managed agent file"
+        return $false
+    }
+    if (-not (Test-AgentDstReady $Dst)) { return $false }
+    $lines = @(Get-Content -LiteralPath $Src)
+    $hasFm = ($lines.Count -gt 0 -and $lines[0] -eq '---')
+    $out = New-Object System.Collections.Generic.List[string]
+    if (-not $hasFm) {
+        [void]$out.Add($Marker)
+        [void]$out.Add('')
+    }
+    $dashes = 0
+    foreach ($l in $lines) {
+        [void]$out.Add($l)
+        if ($hasFm -and $dashes -lt 2 -and $l -eq '---') {
+            $dashes++
+            if ($dashes -eq 2) { [void]$out.Add($Marker) }
+        }
+    }
+    [System.IO.File]::WriteAllText($Dst, (($out -join "`n") + "`n"))
+    Write-Host "  installed $Dst"
+    return $true
+}
+
+function Install-CopilotAgentCopy {
+    param([string]$Src, [string]$Dst, [string]$Id)
+    $parent = Split-Path -Parent $Dst
+    if (-not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+    if (Test-Path -LiteralPath $Dst -PathType Container) {
+        Write-Warning "skipped $Dst - exists but is not a managed agent file"
+        return $false
+    }
+    if (-not (Test-AgentDstReady $Dst)) { return $false }
+    $desc = Get-AgentDescription $Src
+    if ([string]::IsNullOrWhiteSpace($desc)) {
+        throw "agent has no description frontmatter: $Src"
+    }
+    $tools = Get-AgentTools $Id
+    $body = @(Get-AgentBodyLines @(Get-Content -LiteralPath $Src))
+    $out = New-Object System.Collections.Generic.List[string]
+    [void]$out.Add('---')
+    [void]$out.Add("description: $desc")
+    [void]$out.Add("tools: $tools")
+    [void]$out.Add('---')
+    [void]$out.Add($Marker)
+    foreach ($l in $body) { [void]$out.Add($l) }
+    [System.IO.File]::WriteAllText($Dst, (($out -join "`n") + "`n"))
+    Write-Host "  installed $Dst"
+    return $true
+}
+
+$AgentsDir = Join-Path $RepoRoot 'agents'
+$installOpenCodeAgents = -not $skipOpenCodeRules
+$installCopilotAgents = -not $skipCopilotRules
+if ($Scope -eq 'global') {
+    $openCodeAgentsDir = Join-Path $HOME '.config/opencode/agents'
+    $copilotAgentsDir = Join-Path $HOME '.copilot/agents'
+}
+else {
+    $openCodeAgentsDir = Join-Path $LocalTarget '.opencode/agents'
+    $copilotAgentsDir = Join-Path $LocalTarget '.github/agents'
+}
+
+$agentCount = 0
+if ($installOpenCodeAgents -or $installCopilotAgents) {
+    if (-not (Test-Path -LiteralPath $AgentsDir -PathType Container)) {
+        throw "agents directory not found: $AgentsDir (run the script from inside the repo)"
+    }
+    if ($Clean) { Write-Host "Cleaning managed agents" }
+    else { Write-Host "Installing agents" }
+    $agentFiles = @(Get-ChildItem -LiteralPath $AgentsDir -Filter '*.md' -File)
+    if ((-not $Clean) -and ($agentFiles.Count -eq 0)) {
+        throw "no agents found in $AgentsDir"
+    }
+    foreach ($f in $agentFiles) {
+        $id = [System.IO.Path]::GetFileNameWithoutExtension($f.Name)
+        if ($installOpenCodeAgents) {
+            $dst = Join-Path $openCodeAgentsDir "$id.md"
+            if ($Clean) {
+                Remove-ManagedAgentFile $dst
+            }
+            elseif ((Test-Path -LiteralPath $dst) -and (Test-IsLink $dst)) {
+                if ($Mode -eq 'link') {
+                    Write-Host "  linked   $dst (already current)"
+                    $agentCount++
+                }
+                else {
+                    Remove-ManagedAgentFile $dst
+                    if (Install-OpenCodeAgentCopy $f.FullName $dst) { $agentCount++ }
+                }
+            }
+            elseif ($Mode -eq 'link') {
+                Remove-ManagedAgentFile $dst
+                if ((Test-Path -LiteralPath $dst) -or (Get-Item -LiteralPath $dst -Force -ErrorAction SilentlyContinue)) {
+                    Write-Warning "skipped $dst - exists and was not created by this script"
+                }
+                else {
+                    $parent = Split-Path -Parent $dst
+                    if (-not (Test-Path -LiteralPath $parent)) {
+                        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+                    }
+                    $linked = $false
+                    try {
+                        New-Item -ItemType SymbolicLink -Path $dst -Target $f.FullName -ErrorAction Stop | Out-Null
+                        Write-Host "  linked   $dst -> $($f.FullName)"
+                        $linked = $true
+                    }
+                    catch {
+                        Write-Warning "symlink failed for $dst ($($_.Exception.Message)); falling back to copy"
+                        $linked = Install-OpenCodeAgentCopy $f.FullName $dst
+                    }
+                    if ($linked) { $agentCount++ }
+                }
+            }
+            else {
+                if (Install-OpenCodeAgentCopy $f.FullName $dst) { $agentCount++ }
+            }
+        }
+        if ($installCopilotAgents) {
+            $dst = Join-Path $copilotAgentsDir "$id.agent.md"
+            if ($Clean) {
+                Remove-ManagedAgentFile $dst
+            }
+            else {
+                if (Install-CopilotAgentCopy $f.FullName $dst $id) { $agentCount++ }
+            }
+        }
+    }
+    if ($Clean) {
+        $cleanDirs = @()
+        if ($installOpenCodeAgents) { $cleanDirs += $openCodeAgentsDir }
+        if ($installCopilotAgents) { $cleanDirs += $copilotAgentsDir }
+        foreach ($d in $cleanDirs) {
+            if ((Test-Path -LiteralPath $d -PathType Container) -and @(Get-ChildItem -LiteralPath $d -Force).Count -eq 0) {
+                Remove-Item -LiteralPath $d -Force
+                Write-Host "Removed empty $d"
+            }
+        }
+        Write-Host "Done: cleaned managed agents"
+    }
+    else {
+        Write-Host "Done: $agentCount agent files installed ($Mode)."
     }
 }

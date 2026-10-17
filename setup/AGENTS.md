@@ -21,26 +21,29 @@ This is not negotiable. You cannot rationalize your way out of this.
 
 ## Skill catalog
 
-| Trigger | Skill | File |
-| --- | --- | --- |
-| Creating something new or planning anything (features, refactors, talks, renovations) | `brainstorming` | `skills/brainstorming/SKILL.md` |
-| A spec or requirements exist and the work is multi-step | `writing-plans` | `skills/writing-plans/SKILL.md` |
-| Writing any production code or test | `test-driven-development` | `skills/test-driven-development/SKILL.md` |
-| Any bug, test failure, or unexpected behavior | `systematic-debugging` | `skills/systematic-debugging/SKILL.md` |
-| Executing a plan yourself, inline, with no subagent tool | `executing-plans` | `skills/executing-plans/SKILL.md` |
-| Executing a plan with independent tasks via subagents | `subagent-driven-development` | `skills/subagent-driven-development/SKILL.md` |
-| Two or more independent tasks with no shared state | `dispatching-parallel-agents` | `skills/dispatching-parallel-agents/SKILL.md` |
-| Feature work needing isolation from the current workspace | `using-git-worktrees` | `skills/using-git-worktrees/SKILL.md` |
-| About to claim work is complete, fixed, or passing | `verification-before-completion` | `skills/verification-before-completion/SKILL.md` |
-| Finishing work and deciding how to integrate it | `finishing-a-development-branch` | `skills/finishing-a-development-branch/SKILL.md` |
-| Reviewing changes, or preparing to merge | `requesting-code-review` | `skills/requesting-code-review/SKILL.md` |
-| Receiving code review feedback | `receiving-code-review` | `skills/receiving-code-review/SKILL.md` |
+| Trigger | Skill |
+| --- | --- |
+| Creating something new or planning anything (features, refactors, talks, renovations) | `brainstorming` |
+| A spec or requirements exist and the work is multi-step | `writing-plans` |
+| Writing any production code or test | `test-driven-development` |
+| Any bug, test failure, or unexpected behavior | `systematic-debugging` |
+| Executing a plan yourself, inline, with no subagent tool | `executing-plans` |
+| Executing a plan with independent tasks via subagents | `subagent-driven-development` |
+| Two or more independent tasks with no shared state | `dispatching-parallel-agents` |
+| Feature work needing isolation from the current workspace | `using-git-worktrees` |
+| About to claim work is complete, fixed, or passing | `verification-before-completion` |
+| Finishing work and deciding how to integrate it | `finishing-a-development-branch` |
+| Reviewing changes, or preparing to merge | `requesting-code-review` |
+| Receiving code review feedback | `receiving-code-review` |
+| Writing or reviewing React components (hooks, server/client boundaries, Suspense, forms, a11y) | `react-patterns` |
+| React/Next.js performance work (re-renders, waterfalls, bundle size, server-side) | `react-performance` |
+| Writing ClickHouse schemas or queries, or a slow analytical query | `clickhouse-io` |
 
 ## Loading skills
 
 - OpenCode: call the `skill` tool with the skill ID, or mention `@<skill-id>`.
 - VS Code Copilot: skills load automatically by description, or type `/<skill-id>` in chat.
-- If the skill ID is not discoverable, read `skills/<skill-id>/SKILL.md` directly.
+- If the skill ID is not discoverable, read the file directly: `.agents/skills/<skill-id>/SKILL.md` in a local-scope project, or `~/.agents/skills/<skill-id>/SKILL.md` for the user-level library.
 
 ## Tool mapping (OpenCode)
 
@@ -64,6 +67,17 @@ scoped and authorized, execute that task. Never restart controller workflows
 Implementation skills (`test-driven-development`, `systematic-debugging`,
 `verification-before-completion`) still apply in full.
 </SUBAGENT-STOP>
+
+## Agents
+
+| Trigger | Agent | Source |
+| --- | --- | --- |
+| Reviewing `.tsx`/`.jsx` changes (hooks, perf, a11y, RSC boundaries) | `react-reviewer` | `agents/react-reviewer.md` |
+| Reviewing TypeScript/JavaScript for type safety and async correctness | `typescript-reviewer` | `agents/typescript-reviewer.md` |
+| React build failure across Vite, webpack, or Next.js | `react-build-resolver` | `agents/react-build-resolver.md` |
+| Reviewing C# / .NET changes (conventions, async, nullable types, perf) | `csharp-reviewer` | `agents/csharp-reviewer.md` |
+| Architecture decisions, trade-offs, ADRs, or cross-service topology calls | `architect` | `agents/architect.md` |
+| Reviewing code for OWASP risks, secrets, injection, or auth | `security-reviewer` | `agents/security-reviewer.md` |
 
 ## Precedence
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Installs this repo's skills into an agent-skills discovery location.
+# Installs this repo's skills and agents into agent discovery locations.
 #
 # OpenCode and VS Code Copilot both auto-discover ~/.agents/skills and
 # .agents/skills, so either scope works with zero configuration.
@@ -372,4 +372,174 @@ if [[ $install_opencode_rules == "1" || $install_copilot_rules == "1" ]]; then
     fi
 elif [[ "$scope" != "global" ]]; then
     echo "  $local_scope_note"
+fi
+
+# --- Agents (OpenCode + Copilot) ----------------------------------------------
+#
+# Canonical agents live in agents/<id>.md (OpenCode format: description +
+# mode: subagent + optional permissions). Each is installed per the harness
+# answer already given above (no new question): Both installs both copies,
+# OpenCode-only / Copilot-only install just theirs.
+#
+#   Global scope: OpenCode ~/.config/opencode/agents/<id>.md (verbatim) and
+#                 Copilot  ~/.copilot/agents/<id>.agent.md (converted).
+#   Local scope:  OpenCode <target>/.opencode/agents/<id>.md (verbatim) and
+#                 Copilot  <target>/.github/agents/<id>.agent.md (converted).
+#
+# The Copilot copy keeps `description`, gains a `tools:` array (architect gets
+# search/read/grep/edit since it drafts proposals; the read-only reviewers get
+# search/read/grep), and drops the OpenCode-only `mode`/`permissions` keys;
+# the body is unchanged.
+#
+# Installed file copies carry the managed marker (<!-- agent-hub:managed -->)
+# as an HTML comment line right after the frontmatter, so refresh and --clean
+# can prove ownership: an existing file without the marker is never
+# overwritten or deleted. Link mode installs OpenCode copies as symlinks
+# instead (the link itself is proof of ownership); Copilot copies are always
+# written files because conversion changes the bytes, so a link to the source
+# could not carry the converted frontmatter.
+
+agents_dir="$repo_root/agents"
+
+install_opencode_agents=1
+install_copilot_agents=1
+if [[ $skip_opencode_rules == "1" ]]; then install_opencode_agents=0; fi
+if [[ $skip_copilot_rules == "1" ]]; then install_copilot_agents=0; fi
+
+if [[ "$scope" == "global" ]]; then
+    opencode_agents_dir="$HOME/.config/opencode/agents"
+    copilot_agents_dir="$HOME/.copilot/agents"
+else
+    opencode_agents_dir="$local_target/.opencode/agents"
+    copilot_agents_dir="$local_target/.github/agents"
+fi
+
+agent_tools_for() { # $1 = agent id -> Copilot tools array for the converted copy
+    if [[ "$1" == "architect" ]]; then
+        echo "['search', 'read', 'grep', 'edit']"
+    else
+        echo "['search', 'read', 'grep']"
+    fi
+}
+
+agent_description() { # $1 = src file -> value of the description: frontmatter line
+    awk '/^description: */ { sub(/^description: */, ""); print; exit }' "$1"
+}
+
+agent_body() { # $1 = src file -> everything after the closing --- frontmatter line
+    # Only the leading frontmatter counts: a body line of exactly --- (e.g. a
+    # Markdown rule) must be kept. Files without leading frontmatter pass
+    # through unchanged.
+    awk 'NR==1 { if ($0 != "---") { nofm=1 } } nofm { print; next } NR==1 { next } c<1 && $0=="---" { c++; next } 1' "$1"
+}
+
+is_managed_agent() { # $1 = path -> true when the path is a symlink or a marked file
+    if [[ -L "$1" ]]; then return 0; fi
+    if [[ -f "$1" ]] && grep -qF "$marker" "$1"; then return 0; fi
+    return 1
+}
+
+write_opencode_agent() { # $1 = src, $2 = dst (copy mode: verbatim + marker after frontmatter)
+    local src="$1" dst="$2"
+    mkdir -p "$(dirname "$dst")"
+    if [[ -d "$dst" && ! -L "$dst" ]]; then
+        echo "  skipped  $dst - exists but is not a managed agent file" >&2
+        return 0
+    fi
+    if [[ -f "$dst" && ! -L "$dst" ]] && ! grep -qF "$marker" "$dst"; then
+        echo "  skipped  $dst - exists and was not created by this script (back it up and remove it first to replace it)" >&2
+        return 0
+    fi
+    if [[ -L "$dst" ]]; then rm "$dst"; fi
+    awk -v marker="$marker" 'NR==1 { if ($0 != "---") { nofm=1; print marker; print "" } print; next } nofm { print; next } c<1 && $0=="---" { print; print marker; c++; next } 1' "$src" > "$dst"
+    echo "  installed $dst"
+}
+
+write_copilot_agent() { # $1 = src, $2 = dst (always a converted file copy)
+    local src="$1" dst="$2" id desc tools
+    id="$(basename "$src" .md)"
+    mkdir -p "$(dirname "$dst")"
+    if [[ -d "$dst" && ! -L "$dst" ]]; then
+        echo "  skipped  $dst - exists but is not a managed agent file" >&2
+        return 0
+    fi
+    if [[ -f "$dst" && ! -L "$dst" ]] && ! grep -qF "$marker" "$dst"; then
+        echo "  skipped  $dst - exists and was not created by this script (back it up and remove it first to replace it)" >&2
+        return 0
+    fi
+    if [[ -L "$dst" ]]; then rm "$dst"; fi
+    desc="$(agent_description "$src")"
+    if [[ -z "$desc" ]]; then
+        echo "error: agent has no description frontmatter: $src" >&2
+        exit 1
+    fi
+    tools="$(agent_tools_for "$id")"
+    {
+        printf -- '---\n'
+        printf 'description: %s\n' "$desc"
+        printf 'tools: %s\n' "$tools"
+        printf -- '---\n'
+        printf '%s\n' "$marker"
+        agent_body "$src"
+    } > "$dst"
+    echo "  installed $dst"
+}
+
+agent_count=0
+if [[ $install_opencode_agents == "1" || $install_copilot_agents == "1" ]]; then
+    [[ -d "$agents_dir" ]] || { echo "error: agents directory not found: $agents_dir" >&2; exit 1; }
+    if [[ "$clean" == "1" ]]; then
+        echo "Cleaning managed agents"
+    else
+        echo "Installing agents"
+    fi
+    if [[ "$clean" == "0" ]]; then
+        agent_srcs=( "$agents_dir"/*.md )
+        if [[ ${#agent_srcs[@]} -eq 0 ]] || [[ ${#agent_srcs[@]} -eq 1 && ! -f "${agent_srcs[0]:-}" ]]; then
+            echo "error: no agents found in $agents_dir" >&2
+            exit 1
+        fi
+    fi
+    for src in "$agents_dir"/*.md; do
+        [[ -f "$src" ]] || continue
+        id="$(basename "$src" .md)"
+        if [[ $install_opencode_agents == "1" ]]; then
+            dst="$opencode_agents_dir/$id.md"
+            if [[ "$clean" == "1" ]]; then
+                remove_managed "$dst"
+            elif [[ "$mode" == "link" && -L "$dst" && -e "$dst" ]]; then
+                echo "  linked   $dst (already current)"
+                agent_count=$((agent_count + 1))
+            elif [[ "$mode" == "link" ]]; then
+                remove_managed "$dst"
+                if [[ -e "$dst" || -L "$dst" ]]; then
+                    echo "  skipped  $dst - exists and was not created by this script" >&2
+                else
+                    mkdir -p "$(dirname "$dst")"
+                    ln -s "$src" "$dst"
+                    echo "  linked   $dst -> $src"
+                    agent_count=$((agent_count + 1))
+                fi
+            else
+                write_opencode_agent "$src" "$dst"
+                if is_managed_agent "$dst"; then agent_count=$((agent_count + 1)); fi
+            fi
+        fi
+        if [[ $install_copilot_agents == "1" ]]; then
+            dst="$copilot_agents_dir/$id.agent.md"
+            if [[ "$clean" == "1" ]]; then
+                remove_managed "$dst"
+            else
+                write_copilot_agent "$src" "$dst"
+                if is_managed_agent "$dst"; then agent_count=$((agent_count + 1)); fi
+            fi
+        fi
+    done
+    if [[ "$clean" == "1" ]]; then
+        if [[ $install_opencode_agents == "1" ]]; then rmdir "$opencode_agents_dir" 2>/dev/null || true; fi
+        if [[ $install_copilot_agents == "1" ]]; then rmdir "$copilot_agents_dir" 2>/dev/null || true; fi
+        echo "Done: cleaned managed agents"
+    else
+        echo "Done: $agent_count agent files installed ($mode)."
+    fi
 fi

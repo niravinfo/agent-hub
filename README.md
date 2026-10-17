@@ -8,7 +8,8 @@ Agent skills for **OpenCode** and **VS Code GitHub Copilot** — no plugins requ
 | --- | --- |
 | `setup/AGENTS.md` | Template of the skill-discipline config. Copied to a project's root as `AGENTS.md` by local-scope installs. Not auto-read from here — it takes effect only where installed. |
 | `skills/` | Source of truth. One directory per skill, each with a `SKILL.md` (name + description frontmatter, instructions in the body). |
-| `setup.ps1` / `setup.sh` | Installers. Make the skills discoverable by agents without editing any IDE or harness configuration. |
+| `agents/` | Source of truth for reviewer/architect subagents (OpenCode `mode: subagent` format). Installed by the setup scripts as OpenCode user agents and Copilot `.agent.md` files. |
+| `setup.ps1` / `setup.sh` | Installers. Make the skills discoverable by agents without editing any IDE or harness configuration. They install both `skills/` and `agents/`. |
 | `docs/mcp.md` | MCP guide: remote Context7 + DeepWiki for OpenCode and VS Code Copilot. See [MCP servers](#mcp-servers). |
 | `mcp/` | Copy-paste MCP templates (OpenCode block, VS Code workspace file, Copilot user file). |
 | `setup-mcp.ps1` / `setup-mcp.sh` | Installers. Merge the `mcp/` templates into your user-level configs (never overwrite, always backup). |

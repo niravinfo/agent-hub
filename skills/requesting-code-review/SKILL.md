@@ -33,6 +33,8 @@ HEAD_SHA=$(git rev-parse HEAD)
 
 Dispatch a `general-purpose` subagent, filling the template at [code-reviewer.md](code-reviewer.md)
 
+**Route by file type:** `.tsx`/`.jsx` changes → `react-reviewer` (+ `typescript-reviewer` for `.tsx`); `.cs` changes → `csharp-reviewer`; topology calls → `architect`.
+
 **Placeholders:**
 - `{DESCRIPTION}` - Brief summary of what you built
 - `{PLAN_OR_REQUIREMENTS}` - What it should do
