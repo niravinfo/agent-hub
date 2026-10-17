@@ -1,12 +1,12 @@
 # agent-hub
 
-Agent skills for **OpenCode** and **VS Code GitHub Copilot** — no plugins required, and nothing to install besides this repo. The default install is **user level**: skills land in `~/.agents/skills` and are available in every project on the machine, plus short always-on rules files in your global config (`~/.config/opencode/AGENTS.md`, `~/.copilot/copilot-instructions.md`). Prefer a single project? Local scope installs into any project folder you pick, without touching user level.
+Agent skills for **OpenCode** and **VS Code GitHub Copilot** — no plugins required, and nothing to install besides this repo. The default install is **user level**: skills land in `~/.agents/skills` and are available in every project on the machine, plus the skill-discipline rules (`setup/AGENTS.md`) copied into your global config (`~/.config/opencode/AGENTS.md`, `~/.copilot/copilot-instructions.md`). Prefer a single project? Local scope installs into any project folder you pick, without touching user level.
 
 ## What's in here
 
 | Path | Purpose |
 | --- | --- |
-| `setup/AGENTS.md` | Template of the skill-discipline config. Copied to a project's root as `AGENTS.md` by local-scope installs. Not auto-read from here — it takes effect only where installed. |
+| `setup/AGENTS.md` | Template of the skill-discipline config. Copied to a project's root as `AGENTS.md` by local-scope installs, and to each harness's always-on user file by global installs. Not auto-read from here — it takes effect only where installed. |
 | `skills/` | Source of truth. One directory per skill, each with a `SKILL.md` (name + description frontmatter, instructions in the body). |
 | `agents/` | Source of truth for reviewer/architect subagents (OpenCode `mode: subagent` format). Installed by the setup scripts as OpenCode user agents and Copilot `.agent.md` files. |
 | `setup.ps1` / `setup.sh` | Installers. Make the skills discoverable by agents without editing any IDE or harness configuration. They install both `skills/` and `agents/`. |
@@ -121,21 +121,33 @@ The two harnesses differ here, and the distinction matters:
 ./setup.sh --yes             # same, silent with defaults (CI-safe)
 ```
 
-The generated file is deliberately short — one paragraph of discipline and
-nothing else, plain Markdown with no frontmatter (frontmatter is only for
-`*.instructions.md`). The skill descriptions are already in context through skills
-discovery, so repeating them would only bloat every prompt. It is **not** a
-copy of the `setup/AGENTS.md` template: it carries the priority rule only, with no skill catalog and no tool mapping. The full template propagates only via local-scope installs.
+Both always-on files are copies of the `setup/AGENTS.md` template — the same
+file a local-scope install writes to a project root. The full skill discipline
+travels with them: the skill catalog, the loading instructions, the tool
+mapping, the agent table, and the precedence rule. Plain Markdown, no
+frontmatter (frontmatter is only for `*.instructions.md`).
+
+One caveat: because the same template goes to both files, the
+OpenCode-specific **Tool mapping** section is present in the Copilot file as
+well. It is scoped by its heading, but the Copilot model has none of those
+tools — ignore that section under Copilot.
 
 Safety rules for these files:
 
-- They carry a `<!-- agent-hub:managed -->` marker. Existing files **without**
-  the marker are never overwritten — the script skips them and tells you, so your own content is safe. Back it up and remove it first if you want the
-  script's version in place.
-- Files **with** the marker are refreshed when you re-run.
-- `-Clean` / `--clean` removes only the marked files.
+- An existing file that **differs from the template** is never overwritten —
+  the script skips it and tells you, so your own content is safe. Back it up
+  and remove it first if you want the template version in place.
+- Files that still match the template are refreshed when you re-run. If the
+  template itself is later edited, an installed copy no longer matches and is
+  treated like any other differing file (left alone) — run `-Clean` first, then
+  reinstall, to push a template change out.
+- Files written by earlier versions of this script (they carry the
+  `<!-- agent-hub:managed -->` marker) are recognised as ours and replaced
+  with the template on the next run.
+- `-Clean` / `--clean` removes only our copies — files that still match the
+  template or carry the marker.
 
-Want the full skill discipline inside a specific project? Run a local-scope install and point it at that project — it copies the `setup/AGENTS.md` template to that project's root (an existing `AGENTS.md` that differs is left alone; local clean removes only identical copies). Both harnesses read a root `AGENTS.md` by default: OpenCode always, the Copilot Agent Host harness by default, and the VS Code Local agent via `chat.useAgentsMdFile` (on by default — only matters if you turned it off).
+Want the full skill discipline inside a specific project too? Run a local-scope install and point it at that project — it copies the `setup/AGENTS.md` template to that project's root (an existing `AGENTS.md` that differs is left alone; local clean removes only identical copies). Both harnesses read a root `AGENTS.md` by default: OpenCode always, the Copilot Agent Host harness by default, and the VS Code Local agent via `chat.useAgentsMdFile` (on by default — only matters if you turned it off).
 
 ## Updating
 
