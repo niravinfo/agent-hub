@@ -182,3 +182,20 @@ Run the setup script with `-Clean` / `--clean` (same scope and mode you used
 to install; for local scope, answer the same target path at the prompt).
 That removes the installed entries; the repo itself stays
 intact.
+
+## Credits
+
+The skills and agents in this repo are copied from two MIT-licensed
+upstream projects — all credit goes to their authors:
+
+- **Process skills** — the development workflow in `skills/`
+  (`brainstorming`, `writing-plans`, `test-driven-development`,
+  `systematic-debugging`, and the others) is copied from
+  [obra/superpowers](https://github.com/obra/superpowers) by Jesse Vincent
+  and Prime Radiant.
+- **Domain skills and agents** — the tech-specific skills in `skills/`
+  (e.g. `react-patterns`, `clickhouse-io`) and the reviewer/architect
+  subagents in `agents/` are copied and adapted from
+  [affaan-m/ECC](https://github.com/affaan-m/ECC).
+
+Both upstream projects are MIT-licensed.
