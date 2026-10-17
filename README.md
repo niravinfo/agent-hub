@@ -10,9 +10,8 @@ Agent skills for **OpenCode** and **VS Code GitHub Copilot** — no plugins requ
 | `skills/` | Source of truth. One directory per skill, each with a `SKILL.md` (name + description frontmatter, instructions in the body). |
 | `agents/` | Source of truth for reviewer/architect subagents (OpenCode `mode: subagent` format). Installed by the setup scripts as OpenCode user agents and Copilot `.agent.md` files. |
 | `setup.ps1` / `setup.sh` | Installers. Make the skills discoverable by agents without editing any IDE or harness configuration. They install both `skills/` and `agents/`. |
-| `docs/mcp.md` | MCP guide: remote Context7 + DeepWiki for OpenCode and VS Code Copilot. See [MCP servers](#mcp-servers). |
 | `mcp/` | Copy-paste MCP templates (OpenCode block, VS Code workspace file, Copilot user file). |
-| `setup-mcp.ps1` / `setup-mcp.sh` | Installers. Merge the `mcp/` templates into your user-level configs (never overwrite, always backup). |
+| `setup-mcp.ps1` / `setup-mcp.sh` | Installers. Interactive: pick where (user/project), which app, which servers. Merge the `mcp/` templates in (never overwrite, always backup); `--defaults` for unattended installs. |
 
 The repo deliberately ships the skills in `skills/` and never commits
 harness-specific discovery folders: the setup scripts create those locally
@@ -148,17 +147,20 @@ name — then re-run the script.
 ## MCP servers
 
 Remote Context7 (library docs) and DeepWiki (public repo Q&A) — keyless by
-default, nothing hosted locally. Automatic install into your user-level
-configs (OpenCode global + Copilot user file, with backup, never overwrite):
+default, nothing hosted locally. A bare run of the installer is interactive:
+it asks where (user level or this project), which application (OpenCode,
+Copilot, or both), and which servers, then shows exactly what it will write
+before touching anything:
 
 ```bash
 ./setup-mcp.sh          # Linux / macOS
 ./setup-mcp.ps1         # Windows
 ```
 
+Pass a flag to skip the questions — `--defaults` installs every server at
+user level; `--skip-opencode`, `--skip-copilot`, and `--clean` trim or undo.
 Prefer manual setup? Copy a block from `mcp/` into your own global or project
-config. Full guide (both harnesses, API-key opt-in, troubleshooting):
-`docs/mcp.md`.
+config.
 
 ## VS Code Copilot notes
 

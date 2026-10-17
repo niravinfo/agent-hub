@@ -3,7 +3,8 @@
 //   - Merge the "mcp" block into your existing file, or
 //   - run ./setup-mcp.sh (./setup-mcp.ps1 on Windows) to install it automatically.
 // Destination (this project only): <project>/opencode.json
-// No API key needed. See docs/mcp.md to add a Context7 key for higher limits.
+// No API key needed. Add an Authorization header below to raise Context7's
+// rate limits (create a key at context7.com).
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
