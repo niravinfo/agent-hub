@@ -75,6 +75,7 @@ Implementation skills (`test-driven-development`, `systematic-debugging`,
 | Reviewing `.tsx`/`.jsx` changes (hooks, perf, a11y, RSC boundaries) | `react-reviewer` |
 | Reviewing TypeScript/JavaScript for type safety and async correctness | `typescript-reviewer` |
 | Reviewing C# / .NET changes (conventions, async, nullable types, perf) | `csharp-reviewer` |
+| Reviewing any diff in a fresh context; catch-all outside the C#, React, and TypeScript lanes | `code-reviewer` |
 | Architecture decisions, trade-offs, ADRs, or cross-service topology calls | `architect` |
 | Reviewing code for OWASP risks, secrets, injection, or auth | `security-reviewer` |
 
