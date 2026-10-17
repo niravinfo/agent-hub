@@ -70,14 +70,14 @@ Implementation skills (`test-driven-development`, `systematic-debugging`,
 
 ## Agents
 
-| Trigger | Agent | Source |
-| --- | --- | --- |
-| Reviewing `.tsx`/`.jsx` changes (hooks, perf, a11y, RSC boundaries) | `react-reviewer` | `agents/react-reviewer.md` |
-| Reviewing TypeScript/JavaScript for type safety and async correctness | `typescript-reviewer` | `agents/typescript-reviewer.md` |
-| React build failure across Vite, webpack, or Next.js | `react-build-resolver` | `agents/react-build-resolver.md` |
-| Reviewing C# / .NET changes (conventions, async, nullable types, perf) | `csharp-reviewer` | `agents/csharp-reviewer.md` |
-| Architecture decisions, trade-offs, ADRs, or cross-service topology calls | `architect` | `agents/architect.md` |
-| Reviewing code for OWASP risks, secrets, injection, or auth | `security-reviewer` | `agents/security-reviewer.md` |
+| Trigger | Agent |
+| --- | --- |
+| Reviewing `.tsx`/`.jsx` changes (hooks, perf, a11y, RSC boundaries) | `react-reviewer` |
+| Reviewing TypeScript/JavaScript for type safety and async correctness | `typescript-reviewer` |
+| React build failure across Vite, webpack, or Next.js | `react-build-resolver` |
+| Reviewing C# / .NET changes (conventions, async, nullable types, perf) | `csharp-reviewer` |
+| Architecture decisions, trade-offs, ADRs, or cross-service topology calls | `architect` |
+| Reviewing code for OWASP risks, secrets, injection, or auth | `security-reviewer` |
 
 ## Precedence
 

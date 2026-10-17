@@ -387,8 +387,9 @@ fi
 #                 Copilot  <target>/.github/agents/<id>.agent.md (converted).
 #
 # The Copilot copy keeps `description`, gains a `tools:` array (architect gets
-# search/read/grep/edit since it drafts proposals; the read-only reviewers get
-# search/read/grep), and drops the OpenCode-only `mode`/`permissions` keys;
+# read/search/edit since it drafts proposals; the read-only reviewers get
+# read/search - `search` covers both text and file search; `grep` is not a
+# Copilot tool alias), and drops the OpenCode-only `mode`/`permissions` keys;
 # the body is unchanged.
 #
 # Installed file copies carry the managed marker (<!-- agent-hub:managed -->)
@@ -416,9 +417,9 @@ fi
 
 agent_tools_for() { # $1 = agent id -> Copilot tools array for the converted copy
     if [[ "$1" == "architect" ]]; then
-        echo "['search', 'read', 'grep', 'edit']"
+        echo "['read', 'search', 'edit']"
     else
-        echo "['search', 'read', 'grep']"
+        echo "['read', 'search']"
     fi
 }
 
