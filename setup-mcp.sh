@@ -9,14 +9,13 @@
 #   VS Code  : project level ./.vscode/mcp.json                (also read by
 #              Copilot; commit it to share with your team)
 #
-# Interactive by default: a bare run asks, in order:
-#     1) where - user level (global) or project level (local)
-#     2) which application - OpenCode, Copilot, or both
-#     3) which servers - comma separated numbers (e.g. 1,2)
-#   then shows what it will write and asks for confirmation. Press Enter to
-#   accept the bracketed default at any step. Prompts appear only on a real
-#   terminal; pipes and CI fall back to the defaults silently. Any flag skips
-#   the questions entirely (non-interactive, for scripting):
+# Interactive by default: on a real terminal a bare run drives an arrow-key
+# wizard - where (user or project level), which application (OpenCode and/or
+# Copilot checkboxes; at least one), and which servers (context7 and/or
+# deepwiki checkboxes; at least one) - then shows what it will write and asks
+# for confirmation. Prompts appear only on a real terminal; pipes and CI fall
+# back to the defaults silently. Any flag skips the questions entirely
+# (non-interactive, for scripting):
 #
 #   ./setup-mcp.sh --defaults      install everything at user level
 #   ./setup-mcp.sh --skip-opencode
@@ -39,7 +38,7 @@ skip_copilot=0
 clean=0
 
 usage() {
-    sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -62,83 +61,34 @@ export REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export SKIP_OPENCODE="$skip_opencode" SKIP_COPILOT="$skip_copilot" MCP_CLEAN="$clean"
 export MCP_TARGETS="" MCP_SERVERS=""
 
-eof_abort() {
-    printf '\nno input left (EOF) - aborting. Use --defaults for a non-interactive install.\n' >&2
-    exit 1
-}
-
-normalize_servers() { # $1 = raw input -> comma list of server names (1 = invalid)
-    local raw want_c=0 want_d=0 tok out=""
-    raw="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
-    raw="$(printf '%s' "$raw" | sed -E 's/[[:space:]]+/,/g')"
-    raw="${raw#,}"; raw="${raw%,}"
-    case "$raw" in
-        all|both|'*') printf 'context7,deepwiki\n'; return 0 ;;
-    esac
-    local IFS=','
-    for tok in $raw; do
-        [[ -n "$tok" ]] || continue
-        case "$tok" in
-            1|context7) want_c=1 ;;
-            2|deepwiki) want_d=1 ;;
-            1-2|2-1) want_c=1; want_d=1 ;;
-            *) return 1 ;;
-        esac
-    done
-    [[ "$want_c" -eq 1 ]] && out="context7"
-    [[ "$want_d" -eq 1 ]] && out="${out:+$out,}deepwiki"
-    [[ -n "$out" ]] || return 1
-    printf '%s' "$out"
-}
+# The interactive wizard is the shared, dependency-free arrow-key layer; it
+# draws to stderr and hands values back on stdout.
+# shellcheck source=lib/tui.sh
+source "$REPO_ROOT/lib/tui.sh"
 
 interactive_setup() {
     echo "MCP server installer - Context7 + DeepWiki"
     echo ""
-    echo "Step 1/3 - Where do you want to install?"
-    echo "  1) User level (global)   - available in every project"
-    echo "  2) Project level (local) - this project only"
     scope=""
     app=""
     servers=""
-    while :; do
-        printf 'Select 1 or 2 [1]: '
-        read -r ans || eof_abort
-        ans="${ans:-1}"
-        case "$ans" in
-            1|2) scope="$ans"; break ;;
-            *) echo "  invalid selection: $ans - try again" >&2 ;;
-        esac
-    done
 
-    echo ""
-    echo "Step 2/3 - Which application?"
-    echo "  1) OpenCode"
-    echo "  2) Copilot"
-    echo "  3) Both"
-    while :; do
-        printf 'Select 1, 2 or 3 [3]: '
-        read -r ans || eof_abort
-        ans="${ans:-3}"
-        case "$ans" in
-            1|2|3) app="$ans"; break ;;
-            *) echo "  invalid selection: $ans - try again" >&2 ;;
-        esac
-    done
+    if [[ "$(tui_menu "Step 1/3 - Where do you want to install?" 0 "User level (global)   - available in every project" "Project level (local) - this project only")" == "0" ]]; then
+        scope=1
+    else
+        scope=2
+    fi
 
-    echo ""
-    echo "Step 3/3 - Which servers do you want to add?"
-    echo "  1) context7 - up-to-date library docs (keyless)"
-    echo "  2) deepwiki - public GitHub repo Q&A (keyless)"
-    while :; do
-        printf 'Select comma separated values, e.g. 1,2 [1,2]: '
-        read -r ans || eof_abort
-        ans="${ans:-1,2}"
-        if norm="$(normalize_servers "$ans")"; then
-            servers="$norm"
-            break
-        fi
-        echo "  invalid selection: $ans - try again" >&2
-    done
+    # Checkboxes, not a one-of-three menu: the widget refuses an all-off
+    # answer, so the pair maps back onto the old 1/2/3 application codes.
+    apps="$(tui_multi "Step 2/3 - Which application?" 11 "OpenCode" "Copilot")"
+    if [[ "${apps:0:1}" == "1" && "${apps:1:1}" == "1" ]]; then app=3
+    elif [[ "${apps:0:1}" == "1" ]]; then app=1
+    else app=2; fi
+
+    picks="$(tui_multi "Step 3/3 - Which servers do you want to add?" 11 "context7 - up-to-date library docs (keyless)" "deepwiki - public GitHub repo Q&A (keyless)")"
+    [[ "${picks:0:1}" == "1" ]] && servers="context7"
+    [[ "${picks:1:1}" == "1" ]] && servers="${servers:+$servers,}deepwiki"
 
     case "$scope:$app" in
         1:1) targets="opencode" ;;
@@ -150,8 +100,7 @@ interactive_setup() {
         *) echo "error: internal selection error" >&2; exit 2 ;;
     esac
 
-    echo ""
-    echo "Ready to install:"
+    tui_banner "Ready to install:"
     for pick in ${targets//,/ }; do
         case "$pick" in
             opencode)       echo "  - OpenCode (user level)             $HOME/.config/opencode/opencode.json" ;;
@@ -162,15 +111,10 @@ interactive_setup() {
     done
     printf 'Servers: %s\n' "$(printf '%s' "$servers" | sed 's/,/, /g')"
 
-    while :; do
-        printf 'Write these files? [Y/n]: '
-        read -r ans || eof_abort
-        case "${ans:-y}" in
-            [Yy]|[Yy][Ee][Ss]) break ;;
-            [Nn]|[Nn][Oo]) echo "Aborted - nothing was changed."; exit 0 ;;
-            *) echo "  please answer y or n" >&2 ;;
-        esac
-    done
+    if ! tui_confirm "Write these files?"; then
+        echo "Aborted - nothing was changed."
+        exit 0
+    fi
 
     echo ""
     export MCP_TARGETS="$targets" MCP_SERVERS="$servers"
@@ -185,7 +129,9 @@ if [[ $defaults_mode -eq 0 && $clean -eq 0 && $skip_opencode -eq 0 && $skip_copi
 fi
 
 if [[ $interactive -eq 1 ]]; then
+    tui_init
     interactive_setup
+    tui_cleanup
 fi
 
 python3 <<'EOF'

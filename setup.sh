@@ -17,13 +17,14 @@
 #   --clean removes only entries it can prove are its own (symlinks, or
 #   directories containing a matching SKILL.md). It never follows links.
 #
-#   Interactive by default: with no selection flags, a bare ./setup.sh asks
-#   what to do (install or clean), which harness to configure (both /
-#   OpenCode / Copilot / neither), how to install skills (copy or link
-#   shortcut), and where (global or local scope). Pass any flag explicitly
-#   to skip its question; --yes answers everything with defaults
-#   (automation/CI). Prompts appear only on a real terminal; pipes and CI
-#   fall back to defaults silently.
+#   Interactive by default: on a real terminal a bare ./setup.sh drives an
+#   arrow-key wizard - what to do (install or clean), which harnesses to
+#   configure (OpenCode and/or Copilot checkboxes; at least one), how to
+#   install skills (copy or link shortcut), and where (global or local
+#   scope). It then prints a summary and asks to proceed before changing
+#   anything. Pass any flag explicitly to skip its question; --yes answers
+#   everything with defaults (automation/CI). Prompts appear only on a real
+#   terminal; pipes and CI fall back to defaults silently.
 #
 #   Skills discovery is not intent mapping: OpenCode and VS Code Copilot both
 #   find ~/.agents/skills on their own, but neither forces the discipline of
@@ -50,18 +51,15 @@ set -euo pipefail
 scope="global"
 mode="copy"
 clean=0
-opencode_rules=0
-copilot_rules=0
 yes_all=0
 interactive=0
 scope_explicit=0
 mode_explicit=0
-rules_explicit=0
 skip_opencode_rules=0
 skip_copilot_rules=0
 
 usage() {
-    sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,47p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -73,8 +71,6 @@ while [[ $# -gt 0 ]]; do
             [[ $# -ge 2 ]] || { echo "error: --mode needs a value" >&2; exit 2; }
             mode="$2"; mode_explicit=1; shift 2 ;;
         --clean) clean=1; shift ;;
-        --opencode-rules) opencode_rules=1; rules_explicit=1; shift ;;
-        --copilot-rules) copilot_rules=1; rules_explicit=1; shift ;;
         --yes|--no-prompt|--non-interactive) yes_all=1; shift ;;
         --interactive) interactive=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -86,42 +82,6 @@ case "$scope" in global|local) ;; *) echo "error: --scope must be global or loca
 case "$mode" in copy|link) ;; *) echo "error: --mode must be copy or link" >&2; exit 2 ;; esac
 
 can_prompt() { [[ -t 0 && -t 1 ]]; }
-
-# menu TITLE DEFAULT_INDEX OPTION... -> prints chosen index (0-based) to stdout.
-# Empty answer (or EOF) selects the default. Accepts number or option name.
-menu() {
-    local title="$1" default="$2"; shift 2
-    local opts=("$@")
-    echo "" >&2
-    echo "$title" >&2
-    local i
-    for i in "${!opts[@]}"; do
-        local mark=""
-        [[ $i == "$default" ]] && mark=" (default)"
-        echo "  [$((i+1))] ${opts[$i]}$mark" >&2
-    done
-    local answer
-    while true; do
-        printf "Select [1-%s, Enter=%s]: " "${#opts[@]}" "$((default+1))" >&2
-        if ! IFS= read -r answer; then echo "" >&2; echo "$default"; return 0; fi
-        answer="$(printf '%s' "$answer" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-        if [[ -z "$answer" ]]; then echo "$default"; return 0; fi
-        if [[ "$answer" =~ ^[0-9]+$ ]] && (( answer >= 1 && answer <= ${#opts[@]} )); then
-            echo "$((answer-1))"; return 0
-        fi
-        local low
-        low="$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')"
-        for i in "${!opts[@]}"; do
-            local opt_low short
-            opt_low="$(printf '%s' "${opts[$i]}" | tr '[:upper:]' '[:lower:]')"
-            short="${opt_low%% *}"
-            if [[ "$low" == "$opt_low" || "$low" == "$short" ]]; then
-                echo "$i"; return 0
-            fi
-        done
-        echo "  Enter 1-${#opts[@]}, a listed name, or empty for default." >&2
-    done
-}
 
 if [[ $interactive == "1" && $yes_all == "1" ]]; then
     echo "error: cannot combine --interactive with --yes/--no-prompt" >&2; exit 2
@@ -139,50 +99,97 @@ skills_dir="$repo_root/skills"
 template_agents="$repo_root/setup/AGENTS.md"
 local_target="$repo_root"
 
+# The interactive wizard is the shared, dependency-free arrow-key layer; it
+# draws to stderr and hands values back on stdout.
+# shellcheck source=lib/tui.sh
+source "$repo_root/lib/tui.sh"
+
+# Where skills land for the current scope. The wizard's summary and the
+# install/clean block below must agree, so both read the target from here.
+skills_target_dir() {
+    if [[ "$scope" == "global" ]]; then
+        printf '%s' "$HOME/.agents/skills"
+    else
+        printf '%s' "$local_target/.agents/skills"
+    fi
+}
+
 if [[ $quiet == "0" ]]; then
+    tui_init
     if [[ $clean == "0" ]]; then
         # No --clean flag: ask install vs clean. (A passed --clean skips this.)
-        choice="$(menu "What do you want to do?" 0 "Install skills" "Clean up installed files")"
+        choice="$(tui_menu "What do you want to do?" 0 "Install skills" "Clean up installed files")"
         if [[ "$choice" == "1" ]]; then clean=1; fi
     fi
-    if [[ $rules_explicit == "0" ]]; then
-        if [[ $clean == "1" ]]; then
-            choice="$(menu "Which rules files apply?" 0 "Both" "OpenCode only" "Copilot only")"
-        else
-            choice="$(menu "Which harness do you want to configure?" 0 "Both (OpenCode + Copilot)" "OpenCode only" "Copilot only")"
-        fi
-        case "$choice" in
-            1) skip_copilot_rules=1 ;;
-            2) skip_opencode_rules=1 ;;
-        esac
-    fi
+    harness_title="Which harness do you want to configure?"
+    if [[ $clean == "1" ]]; then harness_title="Which rules files apply?"; fi
+    # Checkboxes, not a "Both" entry: neither on is refused by the widget, so
+    # the old one-of-three menu becomes a bitstring of skips.
+    chosen="$(tui_multi "$harness_title" 11 "OpenCode" "Copilot")"
+    [[ "${chosen:0:1}" == "1" ]] || skip_opencode_rules=1
+    [[ "${chosen:1:1}" == "1" ]] || skip_copilot_rules=1
     if [[ $clean == "0" && $mode_explicit == "0" ]]; then
-        choice="$(menu "How should skill files be installed?" 0 "Copy (safe snapshot; re-run to refresh)" "Link shortcut (symlink; edits apply immediately)")"
+        choice="$(tui_menu "How should skill files be installed?" 0 "Copy (safe snapshot; re-run to refresh)" "Link shortcut (symlink; edits apply immediately)")"
         if [[ "$choice" == "1" ]]; then mode="link"; fi
     fi
     if [[ $scope_explicit == "0" ]]; then
-        choice="$(menu "Where should skills be installed?" 0 "Global (~/.agents/skills, every project)" "Local (a single project folder)")"
+        choice="$(tui_menu "Where should skills be installed?" 0 "Global (~/.agents/skills, every project)" "Local (a single project folder)")"
         if [[ "$choice" == "1" ]]; then scope="local"; fi
     fi
     if [[ "$scope" == "local" ]]; then
         while true; do
-            printf "Target project path? [Enter=%s]: " "$repo_root" >&2
-            if ! IFS= read -r answer; then echo "" >&2; break; fi
-            answer="$(printf '%s' "$answer" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-            if [[ -z "$answer" ]]; then break; fi
+            answer="$(tui_input "Target project path" "$repo_root")"
+            [[ -n "$answer" ]] || answer="$repo_root"
             case "$answer" in ~*) answer="${answer/#\~/$HOME}" ;; esac
             case "$answer" in /*) candidate="$answer" ;; *) candidate="$repo_root/$answer" ;; esac
             if [[ -d "$candidate" ]]; then local_target="$(cd "$candidate" && pwd)"; break; fi
             echo "  Directory not found. Enter an existing folder or empty for default." >&2
         done
     fi
+
+    # Summary + confirm: the wizard is the only place that knows every answer,
+    # so it is the last chance to catch a wrong scope before anything is written.
+    target_dir="$(skills_target_dir)"
+    harness="OpenCode + Copilot"
+    [[ $skip_opencode_rules == "1" ]] && harness="Copilot"
+    [[ $skip_copilot_rules == "1" ]] && harness="OpenCode"
+    action="Install"
+    [[ $clean == "1" ]] && action="Clean"
+    rules_targets=""; agents_targets=""
+    if [[ "$scope" == "global" ]]; then
+        if [[ $skip_opencode_rules == "0" ]]; then
+            rules_targets="$HOME/.config/opencode/AGENTS.md"
+            agents_targets="$HOME/.config/opencode/agents"
+        fi
+        if [[ $skip_copilot_rules == "0" ]]; then
+            rules_targets="${rules_targets:+$rules_targets, }$HOME/.copilot/copilot-instructions.md"
+            agents_targets="${agents_targets:+$agents_targets, }$HOME/.copilot/agents"
+        fi
+    else
+        rules_targets="$local_target/AGENTS.md"
+        if [[ $skip_opencode_rules == "0" ]]; then agents_targets="$local_target/.opencode/agents"; fi
+        if [[ $skip_copilot_rules == "0" ]]; then
+            agents_targets="${agents_targets:+$agents_targets, }$local_target/.github/agents"
+        fi
+    fi
+
+    tui_banner "Setup summary"
+    printf '  action   %s\n' "$action" >&2
+    printf '  harness  %s\n' "$harness" >&2
+    printf '  mode     %s\n' "$mode" >&2
+    printf '  scope    %s\n' "$scope" >&2
+    printf '  skills   %s\n' "$target_dir" >&2
+    printf '  rules    %s\n' "$rules_targets" >&2
+    printf '  agents   %s\n' "$agents_targets" >&2
+    if ! tui_confirm "Proceed?"; then
+        tui_cleanup
+        echo "nothing was changed"
+        exit 0
+    fi
+    tui_cleanup
 fi
 
-if [[ "$scope" == "global" ]]; then
-    target_dir="$HOME/.agents/skills"
-else
-    target_dir="$local_target/.agents/skills"
-fi
+target_dir="$(skills_target_dir)"
 
 [[ -d "$skills_dir" ]] || { echo "error: skills directory not found: $skills_dir" >&2; exit 1; }
 
