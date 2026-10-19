@@ -10,14 +10,13 @@
                by Copilot tools and the Agent Host)
     VS Code  : project level ./.vscode/mcp.json (also read by Copilot)
 
-    Interactive by default: a bare run asks, in order:
-      1) where - user level (global) or project level (local)
-      2) which application - OpenCode, Copilot, or both
-      3) which servers - comma separated numbers (e.g. 1,2)
-      then shows what it will write and asks for confirmation.
-    Press Enter to accept the bracketed default at any step. Prompts appear
-    only on a real console; pipes and CI fall back to the defaults silently.
-    Any flag skips the questions entirely (non-interactive, for scripting).
+    Interactive by default: on a real console a bare run drives an arrow-key
+    wizard - where (user or project level), which application (OpenCode and/or
+    Copilot checkboxes; at least one), and which servers (context7 and/or
+    deepwiki checkboxes; at least one) - then shows what it will write and asks
+    for confirmation. Prompts appear only on a real console; pipes and CI fall
+    back to the defaults silently. Any flag skips the questions entirely
+    (non-interactive, for scripting).
 
     Safe by design: server definitions come from this repo's mcp/ templates,
     existing servers are never overwritten, nothing secret is written (both
@@ -59,38 +58,14 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = $PSScriptRoot
 
+# The interactive wizard is the shared, dependency-free arrow-key layer; it
+# draws with Write-Host and returns the chosen value.
+. (Join-Path $PSScriptRoot 'lib/tui.ps1')
+
 function Read-TemplateJson {
     param([string]$Path)
     $lines = Get-Content -LiteralPath $Path | Where-Object { $_ -notmatch '^\s*//' }
     return ($lines -join "`n") | ConvertFrom-Json
-}
-
-function ConvertTo-ServerList {
-    param([string]$Raw)
-    # NB: PowerShell variables are case-insensitive - a local "$raw" would
-    # clobber the "$Raw" parameter and make this always return $null.
-    $text = ''
-    if ($Raw) { $text = [string]$Raw }
-    $text = $text.Trim().ToLowerInvariant()
-    if (-not $text) { return $null }
-    if ($text -in @('all', 'both', '*')) { return ,@('context7', 'deepwiki') }
-    $map = @{ '1' = 'context7'; '2' = 'deepwiki'; 'context7' = 'context7'; 'deepwiki' = 'deepwiki' }
-    $out = @()
-    foreach ($p in ($text -replace '\s+', ',') -split ',') {
-        $p = $p.Trim()
-        if (-not $p) { continue }
-        if ($p -in @('1-2', '2-1')) {
-            foreach ($n in @('context7', 'deepwiki')) { if ($out -notcontains $n) { $out += $n } }
-            continue
-        }
-        if ($map.ContainsKey($p)) {
-            if ($out -notcontains $map[$p]) { $out += $map[$p] }
-            continue
-        }
-        return $null
-    }
-    if ($out.Count -eq 0) { return $null }
-    return ,@($out)
 }
 
 $opencodeFresh = '{ "$schema": "https://opencode.ai/config.json", "mcp": {} }'
@@ -131,7 +106,8 @@ $allTargets = @(
 
 # Interactive only when run bare on a real console. Any flag (or a redirected
 # stdin, i.e. pipes/CI) keeps the non-interactive defaults. MCP_ASSUME_TTY=1
-# is a test hook: it forces the prompts so piped answers can drive them.
+# is a test hook: it forces the prompts, but the widgets read raw keys, so a
+# test has to drive them through a pseudo-terminal rather than piped lines.
 $interactive = -not ($Defaults -or $SkipOpencode -or $SkipCopilot -or $Clean)
 if ($interactive) {
     try { $redirected = [Console]::IsInputRedirected } catch { $redirected = $true }
@@ -142,80 +118,53 @@ $selectedKeys = @()
 $selectedServers = @()
 
 if ($interactive) {
-    function Read-Choice {
-        param([string]$Prompt, [string]$Default, [scriptblock]$Validate)
-        while ($true) {
-            $answer = Read-Host "$Prompt [$Default]"
-            if ($null -eq $answer) {
-                Write-Host ''
-                Write-Warning 'no input available (EOF) - aborting. Use -Defaults for a non-interactive install.'
-                exit 1
-            }
-            $answer = $answer.Trim()
-            if (-not $answer) { $answer = $Default }
-            $result = & $Validate $answer
-            if ($null -ne $result) { return $result }
-            Write-Warning "invalid selection: '$answer' - try again"
+    Initialize-Tui
+    try {
+        Write-Host 'MCP server installer - Context7 + DeepWiki'
+        Write-Host ''
+
+        $scope = [string](1 + (Show-TuiMenu -Title 'Step 1/3 - Where do you want to install?' -Options @(
+            'User level (global)   - available in every project'
+            'Project level (local) - this project only'
+        ) -Default 0))
+
+        # Checkboxes, not a one-of-three menu: the widget refuses an all-off
+        # answer, so the pair maps back onto the old 1/2/3 application codes.
+        $apps = Show-TuiMulti -Title 'Step 2/3 - Which application?' -Options @('OpenCode', 'Copilot') -Default @($true, $true)
+        $app = if ($apps[0] -and $apps[1]) { '3' } elseif ($apps[0]) { '1' } else { '2' }
+
+        $picks = Show-TuiMulti -Title 'Step 3/3 - Which servers do you want to add?' -Options @(
+            'context7 - up-to-date library docs (keyless)'
+            'deepwiki - public GitHub repo Q&A (keyless)'
+        ) -Default @($true, $true)
+        $servers = @()
+        if ($picks[0]) { $servers += 'context7' }
+        if ($picks[1]) { $servers += 'deepwiki' }
+
+        switch ("$scope`:$app") {
+            '1:1' { $selectedKeys = @('opencode') }
+            '1:2' { $selectedKeys = @('copilot') }
+            '1:3' { $selectedKeys = @('opencode', 'copilot') }
+            '2:1' { $selectedKeys = @('opencode-local') }
+            '2:2' { $selectedKeys = @('vscode-local') }
+            '2:3' { $selectedKeys = @('opencode-local', 'vscode-local') }
+            default { throw "internal error: scope=$scope app=$app" }
         }
-    }
+        $selectedServers = $servers
 
-    Write-Host 'MCP server installer - Context7 + DeepWiki'
-    Write-Host ''
-    Write-Host 'Step 1/3 - Where do you want to install?'
-    Write-Host '  1) User level (global)   - available in every project'
-    Write-Host '  2) Project level (local) - this project only'
-    $scope = Read-Choice -Prompt 'Select 1 or 2' -Default '1' -Validate {
-        param($a)
-        if ($a -in @('1', '2')) { $a } else { $null }
-    }
-
-    Write-Host ''
-    Write-Host 'Step 2/3 - Which application?'
-    Write-Host '  1) OpenCode'
-    Write-Host '  2) Copilot'
-    Write-Host '  3) Both'
-    $app = Read-Choice -Prompt 'Select 1, 2 or 3' -Default '3' -Validate {
-        param($a)
-        if ($a -in @('1', '2', '3')) { $a } else { $null }
-    }
-
-    Write-Host ''
-    Write-Host 'Step 3/3 - Which servers do you want to add?'
-    Write-Host '  1) context7 - up-to-date library docs (keyless)'
-    Write-Host '  2) deepwiki - public GitHub repo Q&A (keyless)'
-    $servers = Read-Choice -Prompt 'Select comma separated values, e.g. 1,2' -Default '1,2' -Validate {
-        param($a)
-        ConvertTo-ServerList $a
-    }
-
-    switch ("$scope`:$app") {
-        '1:1' { $selectedKeys = @('opencode') }
-        '1:2' { $selectedKeys = @('copilot') }
-        '1:3' { $selectedKeys = @('opencode', 'copilot') }
-        '2:1' { $selectedKeys = @('opencode-local') }
-        '2:2' { $selectedKeys = @('vscode-local') }
-        '2:3' { $selectedKeys = @('opencode-local', 'vscode-local') }
-        default { throw "internal error: scope=$scope app=$app" }
-    }
-    $selectedServers = $servers
-
-    $targets = @($allTargets | Where-Object { $selectedKeys -contains $_.Key })
-    Write-Host ''
-    Write-Host 'Ready to install:'
-    foreach ($t in $targets) {
-        Write-Host ('  - {0,-36} {1}' -f $t.Name, $t.File)
-    }
-    Write-Host ('Servers: ' + ($selectedServers -join ', '))
-    while ($true) {
-        $proceed = Read-Host 'Write these files? [Y/n]'
-        if ($proceed -match '^[Yy]([Ee][Ss])?$') { break }
-        if ($proceed -match '^[Nn]([Oo])?$') {
+        $targets = @($allTargets | Where-Object { $selectedKeys -contains $_.Key })
+        Write-TuiBanner -Title 'Ready to install:'
+        foreach ($t in $targets) {
+            Write-Host ('  - {0,-36} {1}' -f $t.Name, $t.File)
+        }
+        Write-Host ('Servers: ' + ($selectedServers -join ', '))
+        if (-not (Read-TuiConfirm -Question 'Write these files?')) {
             Write-Host 'Aborted - nothing was changed.'
             exit 0
         }
-        Write-Warning 'please answer y or n'
+        Write-Host ''
     }
-    Write-Host ''
+    finally { Restore-Tui }
 }
 else {
     if (-not $SkipOpencode) { $selectedKeys += 'opencode' }
