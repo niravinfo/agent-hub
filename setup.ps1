@@ -19,11 +19,13 @@
     The script is idempotent: re-running refreshes copies and recreates
     missing links. -Clean removes only entries it can prove are its own.
 
-    Interactive by default: with no selection flags, a bare ./setup.ps1 asks
-    what to do (install or clean), which harness to configure (Both /
-    OpenCode / Copilot), how to install skills (copy or link
-    shortcut), and where (global or local scope). Pass any flag explicitly to
-    skip its question; -Yes answers everything with defaults (automation/CI).
+    Interactive by default: on a real console a bare ./setup.ps1 drives an
+    arrow-key wizard - what to do (install or clean), which harnesses to
+    configure (OpenCode and/or Copilot checkboxes; at least one), how to
+    install skills (copy or link), and where (global or local scope). It then
+    prints a summary and asks to proceed before changing anything. Pass any
+    flag explicitly to skip its question; -Yes answers everything with
+    defaults (automation/CI).
 
 .PARAMETER Scope
     global (default) - ~/.agents/skills, all projects for this user
@@ -49,8 +51,7 @@
 
     Rules files are copies of setup/AGENTS.md. A file that differs from the
     template is left alone (unless it carries the managed marker); -Clean
-    removes only our copies. -OpenCodeRules / -CopilotRules are accepted but
-    ignored (both rules files are always installed).
+    removes only our copies.
 
 .EXAMPLE
     ./setup.ps1
@@ -76,11 +77,7 @@ param(
     [switch]$Interactive,
 
     [Alias('NonInteractive')]
-    [switch]$Yes,
-
-    [switch]$OpenCodeRules,
-
-    [switch]$CopilotRules
+    [switch]$Yes
 )
 
 $ErrorActionPreference = 'Stop'
@@ -92,30 +89,9 @@ function Test-CanPrompt {
     catch { return $false }
 }
 
-function Read-MenuChoice {
-    param(
-        [string]$Title,
-        [string[]]$Options,
-        [int]$Default = 0
-    )
-    Write-Host ""
-    Write-Host $Title
-    for ($i = 0; $i -lt $Options.Count; $i++) {
-        $mark = if ($i -eq $Default) { " (default)" } else { "" }
-        Write-Host ("  [{0}] {1}{2}" -f ($i + 1), $Options[$i], $mark)
-    }
-    while ($true) {
-        $answer = Read-Host ("Select [1-{0}, Enter={1}]" -f $Options.Count, ($Default + 1))
-        if ([string]::IsNullOrWhiteSpace($answer)) { return $Default }
-        $answer = $answer.Trim()
-        $n = 0
-        if ([int]::TryParse($answer, [ref]$n) -and $n -ge 1 -and $n -le $Options.Count) { return ($n - 1) }
-        for ($i = 0; $i -lt $Options.Count; $i++) {
-            if ($Options[$i] -ieq $answer) { return $i }
-        }
-        Write-Host ("  Enter 1-{0}, a listed name, or empty for default." -f $Options.Count)
-    }
-}
+# The interactive wizard is the shared, dependency-free arrow-key layer; it
+# draws with Write-Host and returns the chosen value.
+. (Join-Path $PSScriptRoot 'lib/tui.ps1')
 
 $canPrompt = Test-CanPrompt
 if ($Interactive -and $Yes) {
@@ -132,48 +108,94 @@ $SkillsDir = Join-Path $RepoRoot 'skills'
 # installs into the repo itself; the interactive prompt below may override it.
 $LocalTarget = $RepoRoot
 
+# Where skills land for the current scope. The wizard's summary and the
+# install/clean block below must agree, so both read the target from here.
+function Get-TargetDir {
+    if ($Scope -eq 'global') { return (Join-Path $HOME '.agents\skills') }
+    return (Join-Path $LocalTarget '.agents\skills')
+}
+
 $skipOpenCodeRules = $false
 $skipCopilotRules = $false
 if (-not $quiet) {
-    if (-not $PSBoundParameters.ContainsKey('Clean')) {
-        $action = Read-MenuChoice -Title "What do you want to do?" -Options @('Install skills', 'Clean up installed files') -Default 0
-        if ($action -eq 1) { $Clean = $true }
-    }
-    if ($Clean) {
-        $harness = Read-MenuChoice -Title "Which rules files apply?" -Options @('Both', 'OpenCode only', 'Copilot only') -Default 0
-    }
-    else {
-        $harness = Read-MenuChoice -Title "Which harness do you want to configure?" -Options @('Both (OpenCode + Copilot)', 'OpenCode only', 'Copilot only') -Default 0
-    }
-    switch ($harness) {
-        1 { $skipCopilotRules = $true }
-        2 { $skipOpenCodeRules = $true }
-    }
-    if (-not $Clean -and -not $PSBoundParameters.ContainsKey('Mode')) {
-        $modeChoice = Read-MenuChoice -Title "How should skill files be installed?" -Options @('Copy (safe snapshot; re-run to refresh)', 'Link shortcut (junction; edits apply immediately)') -Default 0
-        if ($modeChoice -eq 1) { $Mode = 'link' }
-    }
-    if (-not $PSBoundParameters.ContainsKey('Scope')) {
-        $scopeChoice = Read-MenuChoice -Title "Where should skills be installed?" -Options @('Global (~/.agents/skills, every project)', 'Local (a single project folder)') -Default 0
-        if ($scopeChoice -eq 1) { $Scope = 'local' }
-    }
-    $LocalTarget = $RepoRoot
-    if ((-not $quiet) -and ($Scope -eq 'local')) {
-        while ($true) {
-            $answer = Read-Host ("Target project path [Enter=$RepoRoot]")
-            if ([string]::IsNullOrWhiteSpace($answer)) { break }
-            $candidate = $answer.Trim()
-            if (-not [System.IO.Path]::IsPathRooted($candidate)) {
-                $candidate = Join-Path $RepoRoot $candidate
+    Initialize-Tui
+    try {
+        if (-not $PSBoundParameters.ContainsKey('Clean')) {
+            $action = Show-TuiMenu -Title "What do you want to do?" -Options @('Install skills', 'Clean up installed files') -Default 0
+            if ($action -eq 1) { $Clean = $true }
+        }
+        $harnessTitle = if ($Clean) { "Which rules files apply?" } else { "Which harness do you want to configure?" }
+        # Checkboxes, not a 'Both' entry: the widget refuses an all-off answer,
+        # so the old one-of-three menu becomes a pair of skip flags.
+        $chosen = Show-TuiMulti -Title $harnessTitle -Options @('OpenCode', 'Copilot') -Default @($true, $true)
+        $skipOpenCodeRules = -not $chosen[0]
+        $skipCopilotRules = -not $chosen[1]
+        if (-not $Clean -and -not $PSBoundParameters.ContainsKey('Mode')) {
+            $modeChoice = Show-TuiMenu -Title "How should skill files be installed?" -Options @('Copy (safe snapshot; re-run to refresh)', 'Link shortcut (junction; edits apply immediately)') -Default 0
+            if ($modeChoice -eq 1) { $Mode = 'link' }
+        }
+        if (-not $PSBoundParameters.ContainsKey('Scope')) {
+            $scopeChoice = Show-TuiMenu -Title "Where should skills be installed?" -Options @('Global (~/.agents/skills, every project)', 'Local (a single project folder)') -Default 0
+            if ($scopeChoice -eq 1) { $Scope = 'local' }
+        }
+        $LocalTarget = $RepoRoot
+        if ($Scope -eq 'local') {
+            while ($true) {
+                $answer = Read-TuiInput -Title "Target project path" -Default $RepoRoot
+                if ([string]::IsNullOrWhiteSpace($answer)) { break }
+                $candidate = $answer.Trim()
+                if (-not [System.IO.Path]::IsPathRooted($candidate)) {
+                    $candidate = Join-Path $RepoRoot $candidate
+                }
+                try { $candidate = [System.IO.Path]::GetFullPath($candidate) } catch { $candidate = $null }
+                if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Container)) { $LocalTarget = $candidate; break }
+                Write-Host "  Directory not found. Enter an existing folder or empty for default."
             }
-            try { $candidate = [System.IO.Path]::GetFullPath($candidate) } catch { $candidate = $null }
-            if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Container)) { $LocalTarget = $candidate; break }
-            Write-Host "  Directory not found. Enter an existing folder or empty for default."
+        }
+
+        # Summary + confirm: the wizard is the only place that knows every
+        # answer, so it is the last chance to catch a wrong scope before
+        # anything is written.
+        $TargetDir = Get-TargetDir
+        $harness = 'OpenCode + Copilot'
+        if ($skipOpenCodeRules) { $harness = 'Copilot' }
+        if ($skipCopilotRules) { $harness = 'OpenCode' }
+        $actionLabel = if ($Clean) { 'Clean' } else { 'Install' }
+        $rulesTargets = @()
+        $agentsTargets = @()
+        if ($Scope -eq 'global') {
+            if (-not $skipOpenCodeRules) {
+                $rulesTargets += Join-Path $HOME '.config\opencode\AGENTS.md'
+                $agentsTargets += Join-Path $HOME '.config\opencode\agents'
+            }
+            if (-not $skipCopilotRules) {
+                $rulesTargets += Join-Path $HOME '.copilot\copilot-instructions.md'
+                $agentsTargets += Join-Path $HOME '.copilot\agents'
+            }
+        }
+        else {
+            $rulesTargets += Join-Path $LocalTarget 'AGENTS.md'
+            if (-not $skipOpenCodeRules) { $agentsTargets += Join-Path $LocalTarget '.opencode\agents' }
+            if (-not $skipCopilotRules) { $agentsTargets += Join-Path $LocalTarget '.github\agents' }
+        }
+
+        Write-TuiBanner -Title "Setup summary"
+        Write-Host ("  action   {0}" -f $actionLabel)
+        Write-Host ("  harness  {0}" -f $harness)
+        Write-Host ("  mode     {0}" -f $Mode)
+        Write-Host ("  scope    {0}" -f $Scope)
+        Write-Host ("  skills   {0}" -f $TargetDir)
+        Write-Host ("  rules    {0}" -f ($rulesTargets -join ', '))
+        Write-Host ("  agents   {0}" -f ($agentsTargets -join ', '))
+        if (-not (Read-TuiConfirm -Question "Proceed?")) {
+            Write-Host "nothing was changed"
+            return
         }
     }
+    finally { Restore-Tui }
 }
 
-$TargetDir = if ($Scope -eq 'global') { Join-Path $HOME '.agents\skills' } else { Join-Path $LocalTarget '.agents\skills' }
+$TargetDir = Get-TargetDir
 $TemplateAgents = Join-Path $RepoRoot 'setup\AGENTS.md'
 
 function Test-IsLink {
