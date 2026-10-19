@@ -44,31 +44,29 @@ If skills of the same name already exist elsewhere on your machine — for examp
 
 ## Interactive setup
 
-A bare run guides you — no docs needed. It asks in order: what to do
-(install or clean), which harness (`Both` / `OpenCode` / `Copilot`),
-how to install skills (`Copy` or `Link` shortcut), where
-(`Global` or `Local` scope), and for local scope, which project folder
-(`Enter` defaults to this repo — no need to copy this repo into your
-project). Press `Enter` for the default, or type a
-number or name. Any flag you pass upfront skips its question, so
+A bare run drives an arrow-key wizard — no docs needed. It asks in order:
+what to do (install or clean), which harnesses to configure (`OpenCode`
+and/or `Copilot` checkboxes; at least one), how to install skills
+(`Copy` or `Link` shortcut), and where (`Global` or `Local` scope) — plus
+the project folder for local scope (`Enter` defaults to this repo, so you
+never need to copy this repo into your project). It then prints a summary
+of everything it resolved to and asks to proceed; answering `n` prints
+`nothing was changed` and exits without writing anything.
+
+Move with `↑`/`↓`, toggle a checkbox with `Space`, accept with `Enter`,
+and abort with `Ctrl-C`. Any flag you pass upfront skips its question, so
 `./setup.sh --mode link` only asks the rest.
 
 ```text
-What do you want to do?
-  [1] Install skills (default)
-  [2] Clean up installed files
-Select [1-2, Enter=1]:
 Which harness do you want to configure?
-  [1] Both (OpenCode + Copilot) (default)
-  [2] OpenCode only
-  [3] Copilot only
-Select [1-3, Enter=1]:
+❯ [◉] OpenCode
+  [◉] Copilot
 ```
 
 Automation and CI stay safe: with no terminal attached (pipes, CI jobs)
 the scripts never prompt and use defaults silently. `-Yes` /
 `-NonInteractive` (`--yes` / `--no-prompt`) forces defaults;
-`-Interactive` (`--interactive`) forces the menu and errors when no
+`-Interactive` (`--interactive`) forces the wizard and errors when no
 terminal is attached.
 
 ## Options
@@ -78,9 +76,9 @@ terminal is attached.
 | `./setup.ps1` / `./setup.sh` | Copy skills into `~/.agents/skills` (all projects) |
 | `./setup.ps1 -Mode link` / `./setup.sh --mode link` | Junction / symlink instead of copy — edits to `skills/` apply immediately. Windows junctions need **no admin rights** |
 | `./setup.ps1 -Scope local` / `./setup.sh --scope local` | Install into a project folder you pick (default: this repo): `.agents/skills` plus an `AGENTS.md` copy from `setup/AGENTS.md`. Never touches user level — useful for testing changes without touching your whole machine |
-| `./setup.ps1 -Clean` / `./setup.sh --clean` | Remove only the entries the script created (never follows links, never deletes source content). Also offered in the menu |
+| `./setup.ps1 -Clean` / `./setup.sh --clean` | Remove only the entries the script created (never follows links, never deletes source content). Also offered in the wizard |
 | `./setup.ps1 -Yes` / `./setup.sh --yes` | Answer everything with defaults, no prompts (automation/CI) |
-| `./setup.ps1 -Interactive` / `./setup.sh --interactive` | Force the guided menu (errors with no terminal) |
+| `./setup.ps1 -Interactive` / `./setup.sh --interactive` | Force the guided wizard (errors with no terminal) |
 
 The scripts are idempotent: re-run them any time to refresh copies or to
 repair links.
@@ -159,10 +157,11 @@ name — then re-run the script.
 ## MCP servers
 
 Remote Context7 (library docs) and DeepWiki (public repo Q&A) — keyless by
-default, nothing hosted locally. A bare run of the installer is interactive:
-it asks where (user level or this project), which application (OpenCode,
-Copilot, or both), and which servers, then shows exactly what it will write
-before touching anything:
+default, nothing hosted locally. A bare run of the installer drives the same
+arrow-key wizard: where (user level or this project), which applications
+(OpenCode and/or Copilot checkboxes; at least one), and which servers
+(context7 and/or deepwiki checkboxes; at least one). It then shows exactly
+what it will write and asks to proceed before touching anything:
 
 ```bash
 ./setup-mcp.sh          # Linux / macOS
