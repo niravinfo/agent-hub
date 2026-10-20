@@ -18,26 +18,23 @@ Open the file — or create it — and merge the `mcp` block:
 
 ```jsonc
 {
-	"$schema": "https://opencode.ai/config.json",
-	"mcp": {
-		"servers": {
-			"context7": {
-				"type": "remote",
-				"url": "https://mcp.context7.com/mcp",
-				"enabled": true
-			},
-			"deepwiki": {
-				"type": "remote",
-				"url": "https://mcp.deepwiki.com/mcp",
-				"enabled": true
-			},
-			"playwright": {
-				"type": "local",
-				"command": ["npx", "-y", "@playwright/mcp@latest"],
-				"enabled": true
-			}
-		}
-	}
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "context7": {
+        "type": "remote",
+        "url": "https://mcp.context7.com/mcp"
+      },
+      "deepwiki": {
+        "type": "remote",
+        "url": "https://mcp.deepwiki.com/mcp"
+      },
+      "playwright": {
+        "type": "local",
+        "command": ["npx", "-y", "@playwright/mcp@latest"]
+      }
+    }
+  }
 }
 ```
 
