@@ -60,20 +60,25 @@ This table matters only if you want to edit the skills themselves.
 | `agents/` | Source of truth for reviewer/architect subagents, installed as OpenCode user agents and Copilot `.agent.md` files |
 | `setup/AGENTS.md` | The skill-discipline template the installer copies |
 | `setup.ps1` / `setup.sh` | Skill and agent installer |
-| `mcp/` | Copy-paste MCP templates (OpenCode block, VS Code workspace file, Copilot user file) |
+| `mcp/` | MCP server templates and setup guides for OpenCode and GitHub Copilot |
 
 To add a skill, create `skills/<name>/SKILL.md` with `name` and `description` frontmatter — `name` must match the directory name — then re-run the installer. In link mode there is nothing to re-run: edits apply immediately.
 
 ## MCP servers
-
-Remote Context7 (library docs) and DeepWiki (public repo Q&A) — keyless by default, nothing hosted locally.
 
 ```bash
 ./setup-mcp.sh          # Linux / macOS
 ./setup-mcp.ps1         # Windows
 ```
 
-A bare run drives the same kind of wizard: where (user level or this project), which applications, and which servers. It shows exactly what it will write and asks before touching anything. Pass `--defaults` to install every server at user level unattended; `--skip-opencode`, `--skip-copilot`, and `--clean` trim or undo. Prefer manual setup? Copy a block from `mcp/` into your own global or project config.
+The installer adds the two keyless **remote** servers — Context7 (library docs) and DeepWiki (public repo Q&A) — at user or project level. A bare run drives the same kind of wizard: where, which application, and which servers; it shows exactly what it will write and asks before touching anything. Pass `--defaults` to install both unattended; `--skip-opencode`, `--skip-copilot`, and `--clean` trim or undo.
+
+**Playwright** (local browser automation) is not part of the installer: it runs on your machine through `npx`, needs Node.js 18+, and many existing configs are JSONC with comments, which the installer will not rewrite. Add it by hand from the matching guide:
+
+- [OpenCode](mcp/README-opencode.md) — user level and project level
+- [GitHub Copilot](mcp/README-copilot.md) — user level (`~/.copilot/mcp-config.json`) and workspace (`.mcp.json`)
+
+VS Code is configured through GitHub Copilot, so there is no separate guide for it.
 
 ## Verifying it worked
 
