@@ -4,11 +4,10 @@
     Installs keyless remote MCP servers (Context7 + DeepWiki).
 
 .DESCRIPTION
-    OpenCode : user level  ~/.config/opencode/opencode.json (every project)
-               project level ./opencode.json (this project)
-    Copilot  : user level  ~/.copilot/mcp-config.json (portable format, read
-               by Copilot tools and the Agent Host)
-    VS Code  : project level ./.vscode/mcp.json (also read by Copilot)
+    OpenCode : user level    ~/.config/opencode/opencode.json(c) (every project)
+               project level ./opencode.json(c)                  (this project)
+    Copilot  : user level    ~/.copilot/mcp-config.json          (every project)
+               project level ./.mcp.json                         (this project)
 
     Interactive by default: on a real console a bare run drives an arrow-key
     wizard - where (user or project level), which application (OpenCode and/or
@@ -26,8 +25,7 @@
     what is missing.
 
 .PARAMETER Defaults
-    Non-interactive: install every server at user level (the old bare-run
-    behavior).
+    Non-interactive: install both servers at user level.
 
 .PARAMETER SkipOpencode
     Skip the OpenCode global config.
@@ -68,39 +66,75 @@ function Read-TemplateJson {
     return ($lines -join "`n") | ConvertFrom-Json
 }
 
+function Get-Section {
+    param($Document, [string[]]$Path, [switch]$Create)
+    $node = $Document
+    foreach ($key in $Path) {
+        if (-not ($node -is [pscustomobject])) { return $null }
+        $prop = $node.PSObject.Properties[$key]
+        if (-not $prop) {
+            if (-not $Create) { return $null }
+            $node | Add-Member -NotePropertyName $key -NotePropertyValue ([pscustomobject]@{})
+            $prop = $node.PSObject.Properties[$key]
+        }
+        $node = $prop.Value
+    }
+    if ($node -is [pscustomobject]) { return $node }
+    return $null
+}
+
+function Get-ExistingPath {
+    param([string[]]$Paths)
+    foreach ($path in $Paths) {
+        if (Test-Path -LiteralPath $path) { return $path }
+    }
+    return $Paths[-1]
+}
+
+$cwd = (Get-Location).Path
 $opencodeFresh = '{ "$schema": "https://opencode.ai/config.json", "mcp": {} }'
+$opencodeUserFile = Get-ExistingPath -Paths @(
+    (Join-Path $HOME '.config/opencode/opencode.jsonc'),
+    (Join-Path $HOME '.config/opencode/opencode.json')
+)
+$opencodeLocalFile = Get-ExistingPath -Paths @(
+    (Join-Path $cwd '.opencode/opencode.jsonc'),
+    (Join-Path $cwd '.opencode/opencode.json'),
+    (Join-Path $cwd 'opencode.jsonc'),
+    (Join-Path $cwd 'opencode.json')
+)
 $allTargets = @(
     @{
-        Key      = 'opencode'
-        Name     = 'OpenCode (user level)'
-        File     = Join-Path $HOME '.config/opencode/opencode.json'
-        Template = Join-Path $RepoRoot 'mcp/opencode.jsonc'
-        Section  = 'mcp'
-        Fresh    = $opencodeFresh
+        Key         = 'opencode'
+        Name        = 'OpenCode (user level)'
+        File        = $opencodeUserFile
+        Template    = Join-Path $RepoRoot 'mcp/opencode.jsonc'
+        SectionPath = @('mcp', 'servers')
+        Fresh       = $opencodeFresh
     },
     @{
-        Key      = 'opencode-local'
-        Name     = 'OpenCode (project level)'
-        File     = Join-Path (Get-Location).Path 'opencode.json'
-        Template = Join-Path $RepoRoot 'mcp/opencode.jsonc'
-        Section  = 'mcp'
-        Fresh    = $opencodeFresh
+        Key         = 'opencode-local'
+        Name        = 'OpenCode (project level)'
+        File        = $opencodeLocalFile
+        Template    = Join-Path $RepoRoot 'mcp/opencode.jsonc'
+        SectionPath = @('mcp', 'servers')
+        Fresh       = $opencodeFresh
     },
     @{
-        Key      = 'copilot'
-        Name     = 'Copilot (user level)'
-        File     = Join-Path $HOME '.copilot/mcp-config.json'
-        Template = Join-Path $RepoRoot 'mcp/copilot-user-mcp-config.json'
-        Section  = 'mcpServers'
-        Fresh    = '{ "mcpServers": {} }'
+        Key         = 'copilot'
+        Name        = 'Copilot (user level)'
+        File        = Join-Path $HOME '.copilot/mcp-config.json'
+        Template    = Join-Path $RepoRoot 'mcp/copilot-user-mcp-config.json'
+        SectionPath = @('mcpServers')
+        Fresh       = '{ "mcpServers": {} }'
     },
     @{
-        Key      = 'vscode-local'
-        Name     = 'VS Code / Copilot (project level)'
-        File     = Join-Path (Get-Location).Path '.vscode/mcp.json'
-        Template = Join-Path $RepoRoot 'mcp/vscode-workspace-mcp.json'
-        Section  = 'servers'
-        Fresh    = '{ "servers": {} }'
+        Key         = 'copilot-local'
+        Name        = 'Copilot (project level)'
+        File        = Join-Path $cwd '.mcp.json'
+        Template    = Join-Path $RepoRoot 'mcp/copilot-user-mcp-config.json'
+        SectionPath = @('mcpServers')
+        Fresh       = '{ "mcpServers": {} }'
     }
 )
 
@@ -146,8 +180,8 @@ if ($interactive) {
             '1:2' { $selectedKeys = @('copilot') }
             '1:3' { $selectedKeys = @('opencode', 'copilot') }
             '2:1' { $selectedKeys = @('opencode-local') }
-            '2:2' { $selectedKeys = @('vscode-local') }
-            '2:3' { $selectedKeys = @('opencode-local', 'vscode-local') }
+            '2:2' { $selectedKeys = @('copilot-local') }
+            '2:3' { $selectedKeys = @('opencode-local', 'copilot-local') }
             default { throw "internal error: scope=$scope app=$app" }
         }
         $selectedServers = $servers
@@ -172,8 +206,12 @@ else {
 }
 
 foreach ($t in @($allTargets | Where-Object { $selectedKeys -contains $_.Key })) {
+    $sectionName = $t.SectionPath -join '.'
     try {
-        $desiredAll = (Read-TemplateJson $t.Template).$($t.Section)
+        $desiredAll = Get-Section -Document (Read-TemplateJson $t.Template) -Path $t.SectionPath
+        if ($null -eq $desiredAll) {
+            throw "`"$sectionName`" is not an object"
+        }
     }
     catch {
         Write-Host "[$($t.Name)] error: cannot read template: $($_.Exception.Message)"
@@ -197,7 +235,7 @@ foreach ($t in @($allTargets | Where-Object { $selectedKeys -contains $_.Key }))
             $current = Get-Content -LiteralPath $t.File -Raw | ConvertFrom-Json
         }
         catch {
-            Write-Host "[$($t.Name)] skipped $($t.File): not plain JSON (JSONC with comments?). Add the `"$($t.Section)`" block from $($t.Template) manually. File left untouched."
+            Write-Host "[$($t.Name)] skipped $($t.File): not plain JSON (JSONC with comments?). Add the `"$sectionName`" block from $($t.Template) manually. File left untouched."
             continue
         }
     }
@@ -209,10 +247,16 @@ foreach ($t in @($allTargets | Where-Object { $selectedKeys -contains $_.Key }))
         Write-Host "[$($t.Name)] skipped $($t.File): top level is not an object. Left untouched."
         continue
     }
-    if (-not $current.PSObject.Properties[$t.Section]) {
-        $current | Add-Member -NotePropertyName $t.Section -NotePropertyValue (New-Object psobject)
+    $section = Get-Section -Document $current -Path $t.SectionPath -Create:(-not $Clean)
+    if ($null -eq $section) {
+        if ($Clean) {
+            Write-Host "[$($t.Name)] nothing managed to remove in $($t.File)"
+        }
+        else {
+            Write-Host "[$($t.Name)] skipped $($t.File): `"$sectionName`" is not an object. Left untouched."
+        }
+        continue
     }
-    $section = $current.$($t.Section)
 
     if ($Clean) {
         $removed = @()

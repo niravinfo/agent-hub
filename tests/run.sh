@@ -195,6 +195,68 @@ test_lone_esc_does_not_hang() {
     return 1
 }
 
+# OpenCode v2 requires server names under mcp.servers. The template is what
+# setup-mcp writes, so a v1-shaped template silently produces an ignored config.
+test_opencode_template_uses_v2_shape() {
+    local file="$REPO_ROOT/mcp/opencode.jsonc"
+    if [[ ! -f "$file" ]]; then
+        _fail "mcp/opencode.jsonc is missing"
+        return 1
+    fi
+    if ! awk '
+        /"mcp"[[:space:]]*:/ { in_mcp = 1 }
+        in_mcp && /"servers"[[:space:]]*:/ { in_servers = 1 }
+        in_servers && /"context7"[[:space:]]*:/ { found = 1 }
+        END { exit found ? 0 : 1 }
+    ' "$file"; then
+        _fail "mcp/opencode.jsonc does not nest context7 under mcp.servers"
+        return 1
+    fi
+}
+
+# Copilot CLI reads .mcp.json for workspace config; .vscode/mcp.json is for
+# VS Code and is not read by the CLI. The project-level target must use the
+# former so the wizard's Copilot choice does what it says.
+test_copilot_project_target_is_mcp_json() {
+    local script
+    script="$(cat "$REPO_ROOT/setup-mcp.sh")"
+    assert_contains "project-level Copilot writes .mcp.json" "$script" '.mcp.json'
+    case "$script" in
+        *'.vscode/mcp.json'*)
+            _fail "setup-mcp.sh still targets .vscode/mcp.json for Copilot"
+            return 1
+            ;;
+    esac
+    return 0
+}
+
+# The wizard and the template must agree. Run the non-interactive path against
+# a throwaway HOME and check the file OpenCode actually reads.
+test_mcp_installer_writes_opencode_v2() {
+    command -v python3 >/dev/null 2>&1 || return 2
+    local home="$TMP_ROOT/home-mcp" project="$TMP_ROOT/project-mcp" out file
+    mkdir -p "$home" "$project"
+    if ! out="$( cd "$project" && HOME="$home" bash "$REPO_ROOT/setup-mcp.sh" --defaults 2>&1 )"; then
+        _fail "setup-mcp.sh failed: $(snippet "$out")"
+        return 1
+    fi
+    file="$home/.config/opencode/opencode.json"
+    if [[ ! -f "$file" ]]; then
+        _fail "setup-mcp.sh did not write the OpenCode user config"
+        return 1
+    fi
+    if ! awk '
+        /"mcp"[[:space:]]*:/ { in_mcp = 1 }
+        in_mcp && /"servers"[[:space:]]*:/ { in_servers = 1 }
+        in_servers && /"context7"[[:space:]]*:/ { found = 1 }
+        END { exit found ? 0 : 1 }
+    ' "$file"; then
+        _fail "installed OpenCode config is not v2-shaped"
+        return 1
+    fi
+    assert_contains "install output reports context7" "$out" "context7"
+}
+
 main() {
     local names name run=0
     names="$(declare -F | sed -n 's/.*[[:space:]]\(test_[A-Za-z0-9_]*\)$/\1/p' | LC_ALL=C sort)"

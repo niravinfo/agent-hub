@@ -309,6 +309,81 @@ Restore-Tui
     Assert-Contains -Label 'the unicode pointer is the arrow glyph' -Haystack $PtyOutput -Needle 'P=276F '
 }
 
+# OpenCode v2 requires server names under mcp.servers. The template is what
+# setup-mcp writes, so a v1-shaped template silently produces an ignored config.
+function Test-OpencodeTemplateUsesV2Shape {
+    $path = Join-Path $RepoRoot 'mcp/opencode.jsonc'
+    if (-not (Test-Path -LiteralPath $path)) {
+        Write-Fail 'mcp/opencode.jsonc is missing'
+        return
+    }
+    $text = (Get-Content -LiteralPath $path -Raw) -replace '(?m)^\s*//.*$', ''
+    try { $doc = $text | ConvertFrom-Json }
+    catch {
+        Write-Fail "mcp/opencode.jsonc is not valid JSON after comments are removed: $($_.Exception.Message)"
+        return
+    }
+    Assert-Equal -Label 'context7 is nested under mcp.servers' `
+        -Want 'https://mcp.context7.com/mcp' `
+        -Got $doc.mcp.servers.context7.url
+}
+
+# Copilot CLI reads .mcp.json for workspace config; .vscode/mcp.json is for
+# VS Code and is not read by the CLI. The project-level target must use the
+# former so the wizard's Copilot choice does what it says.
+function Test-CopilotProjectTargetIsMcpJson {
+    $path = Join-Path $RepoRoot 'setup-mcp.ps1'
+    if (-not (Test-Path -LiteralPath $path)) {
+        Write-Fail 'setup-mcp.ps1 is missing'
+        return
+    }
+    $text = Get-Content -LiteralPath $path -Raw
+    Assert-Contains -Label 'project-level Copilot writes .mcp.json' -Haystack $text -Needle '.mcp.json'
+    if ($text.Contains('.vscode/mcp.json')) {
+        Write-Fail 'setup-mcp.ps1 still targets .vscode/mcp.json for Copilot'
+    }
+}
+
+# The wizard and the template must agree. Run the non-interactive path against
+# a throwaway USERPROFILE and check the file OpenCode actually reads. This is
+# Windows-only because PowerShell on Linux resolves $HOME from the passwd file,
+# not from USERPROFILE.
+function Test-McpInstallerWritesOpencodeV2 {
+    if ($env:OS -ne 'Windows_NT') {
+        Write-Skip 'SKIP: Windows-only installer test'
+        return
+    }
+    $root = Join-Path $TmpRoot ('mcp-' + [Guid]::NewGuid().ToString('N'))
+    $homeDir = Join-Path $root 'home'
+    $project = Join-Path $root 'project'
+    New-Item -ItemType Directory -Path $homeDir, $project -Force | Out-Null
+    $savedProfile = $env:USERPROFILE
+    try {
+        $env:USERPROFILE = $homeDir
+        Push-Location $project
+        try {
+            $out = & $HostExe -NoProfile -File (Join-Path $RepoRoot 'setup-mcp.ps1') -Defaults 2>&1 | Out-String
+        }
+        finally {
+            Pop-Location
+        }
+        $file = Join-Path $homeDir '.config/opencode/opencode.json'
+        if (-not (Test-Path -LiteralPath $file)) {
+            Write-Fail "setup-mcp.ps1 did not write the OpenCode user config: $(Get-Snippet $out)"
+            return
+        }
+        $doc = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+        Assert-Equal -Label 'installed OpenCode config is v2-shaped' `
+            -Want 'https://mcp.context7.com/mcp' `
+            -Got $doc.mcp.servers.context7.url
+        Assert-Contains -Label 'install output reports context7' -Haystack $out -Needle 'context7'
+    }
+    finally {
+        $env:USERPROFILE = $savedProfile
+        Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Invoke-Main {
     $names = @(Get-ChildItem -Path function: |
         Where-Object { $_.Name -like 'Test-*' } |

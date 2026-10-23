@@ -2,12 +2,10 @@
 #
 # Installs keyless remote MCP servers (Context7 + DeepWiki):
 #
-#   OpenCode : user level     ~/.config/opencode/opencode.json (every project)
-#              project level ./opencode.json                  (this project)
-#   Copilot  : user level     ~/.copilot/mcp-config.json       (every workspace;
-#              portable format, read by Copilot tools and the Agent Host)
-#   VS Code  : project level ./.vscode/mcp.json                (also read by
-#              Copilot; commit it to share with your team)
+#   OpenCode : user level    ~/.config/opencode/opencode.json(c) (every project)
+#              project level ./opencode.json(c)                  (this project)
+#   Copilot  : user level    ~/.copilot/mcp-config.json          (every project)
+#              project level ./.mcp.json                         (this project)
 #
 # Interactive by default: on a real terminal a bare run drives an arrow-key
 # wizard - where (user or project level), which application (OpenCode and/or
@@ -38,7 +36,7 @@ skip_copilot=0
 clean=0
 
 usage() {
-    sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -95,18 +93,18 @@ interactive_setup() {
         1:2) targets="copilot" ;;
         1:3) targets="opencode,copilot" ;;
         2:1) targets="opencode-local" ;;
-        2:2) targets="vscode-local" ;;
-        2:3) targets="opencode-local,vscode-local" ;;
+        2:2) targets="copilot-local" ;;
+        2:3) targets="opencode-local,copilot-local" ;;
         *) echo "error: internal selection error" >&2; exit 2 ;;
     esac
 
     tui_banner "Ready to install:"
     for pick in ${targets//,/ }; do
         case "$pick" in
-            opencode)       echo "  - OpenCode (user level)             $HOME/.config/opencode/opencode.json" ;;
-            copilot)        echo "  - Copilot (user level)              $HOME/.copilot/mcp-config.json" ;;
-            opencode-local) echo "  - OpenCode (project level)          $PWD/opencode.json" ;;
-            vscode-local)   echo "  - VS Code / Copilot (project level) $PWD/.vscode/mcp.json" ;;
+            opencode)       echo "  - OpenCode (user level)    $HOME/.config/opencode/opencode.json(c)" ;;
+            copilot)        echo "  - Copilot (user level)     $HOME/.copilot/mcp-config.json" ;;
+            opencode-local) echo "  - OpenCode (project level) $PWD/opencode.json(c)" ;;
+            copilot-local)  echo "  - Copilot (project level)  $PWD/.mcp.json" ;;
         esac
     done
     printf 'Servers: %s\n' "$(printf '%s' "$servers" | sed 's/,/, /g')"
@@ -145,7 +143,24 @@ cwd = os.getcwd()
 selected_keys = [k for k in os.environ.get("MCP_TARGETS", "").split(",") if k]
 selected_servers = [s for s in os.environ.get("MCP_SERVERS", "").split(",") if s]
 
+def existing_path(*paths):
+    for path in paths:
+        if os.path.exists(path):
+            return path
+    return paths[-1]
+
+
 opencode_fresh = {"$schema": "https://opencode.ai/config.json", "mcp": {}}
+opencode_user_file = existing_path(
+    os.path.join(home, ".config", "opencode", "opencode.jsonc"),
+    os.path.join(home, ".config", "opencode", "opencode.json"),
+)
+opencode_local_file = existing_path(
+    os.path.join(cwd, ".opencode", "opencode.jsonc"),
+    os.path.join(cwd, ".opencode", "opencode.json"),
+    os.path.join(cwd, "opencode.jsonc"),
+    os.path.join(cwd, "opencode.json"),
+)
 
 all_targets = [
     {
@@ -153,17 +168,17 @@ all_targets = [
         "name": "OpenCode (user level)",
         "skip_env": "SKIP_OPENCODE",
         "legacy": True,
-        "file": os.path.join(home, ".config", "opencode", "opencode.json"),
+        "file": opencode_user_file,
         "template": os.path.join(repo, "mcp", "opencode.jsonc"),
-        "section": "mcp",
+        "section": ["mcp", "servers"],
         "fresh": opencode_fresh,
     },
     {
         "key": "opencode-local",
         "name": "OpenCode (project level)",
-        "file": os.path.join(cwd, "opencode.json"),
+        "file": opencode_local_file,
         "template": os.path.join(repo, "mcp", "opencode.jsonc"),
-        "section": "mcp",
+        "section": ["mcp", "servers"],
         "fresh": opencode_fresh,
     },
     {
@@ -173,16 +188,16 @@ all_targets = [
         "legacy": True,
         "file": os.path.join(home, ".copilot", "mcp-config.json"),
         "template": os.path.join(repo, "mcp", "copilot-user-mcp-config.json"),
-        "section": "mcpServers",
+        "section": ["mcpServers"],
         "fresh": {"mcpServers": {}},
     },
     {
-        "key": "vscode-local",
-        "name": "VS Code / Copilot (project level)",
-        "file": os.path.join(cwd, ".vscode", "mcp.json"),
-        "template": os.path.join(repo, "mcp", "vscode-workspace-mcp.json"),
-        "section": "servers",
-        "fresh": {"servers": {}},
+        "key": "copilot-local",
+        "name": "Copilot (project level)",
+        "file": os.path.join(cwd, ".mcp.json"),
+        "template": os.path.join(repo, "mcp", "copilot-user-mcp-config.json"),
+        "section": ["mcpServers"],
+        "fresh": {"mcpServers": {}},
     },
 ]
 
@@ -210,10 +225,28 @@ def load_template(path):
     return json.loads(text)
 
 
+def resolve_section(document, path, create=False):
+    node = document
+    for key in path:
+        if not isinstance(node, dict):
+            return None
+        if key not in node:
+            if not create:
+                return None
+            node[key] = {}
+        node = node[key]
+    return node if isinstance(node, dict) else None
+
+
 fail = False
 for t in targets:
+    section_name = ".".join(t["section"])
     try:
-        desired_section = load_template(t["template"])[t["section"]]
+        desired_section = resolve_section(
+            load_template(t["template"]), t["section"]
+        )
+        if desired_section is None:
+            raise ValueError(f'"{section_name}" is not an object')
     except (OSError, ValueError) as e:
         print(f"[{t['name']}] error: cannot read template: {e}")
         fail = True
@@ -231,7 +264,7 @@ for t in targets:
                 current = json.load(f)
         except ValueError:
             print(f"[{t['name']}] skipped {t['file']}: not plain JSON "
-                  f"(JSONC with comments?). Add the \"{t['section']}\" block from "
+                  f"(JSONC with comments?). Add the \"{section_name}\" block from "
                   f"{t['template']} manually. File left untouched.")
             continue
     else:
@@ -241,9 +274,13 @@ for t in targets:
     if not isinstance(current, dict):
         print(f"[{t['name']}] skipped {t['file']}: top level is not an object. Left untouched.")
         continue
-    section = current.setdefault(t["section"], {})
-    if not isinstance(section, dict):
-        print(f"[{t['name']}] skipped {t['file']}: \"{t['section']}\" is not an object. Left untouched.")
+    section = resolve_section(current, t["section"], create=not clean)
+    if section is None:
+        if clean:
+            print(f"[{t['name']}] nothing managed to remove in {t['file']}")
+        else:
+            print(f"[{t['name']}] skipped {t['file']}: "
+                  f"\"{section_name}\" is not an object. Left untouched.")
         continue
 
     if clean:

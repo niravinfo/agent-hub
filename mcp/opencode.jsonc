@@ -1,22 +1,22 @@
 // Template: Context7 + DeepWiki MCP servers for OpenCode.
-// Destination (global, every project): ~/.config/opencode/opencode.json
-//   - Merge the "mcp" block into your existing file, or
-//   - run ./setup-mcp.sh (./setup-mcp.ps1 on Windows) to install it automatically.
-// Destination (this project only): <project>/opencode.json
-// No API key needed. Add an Authorization header below to raise Context7's
-// rate limits (create a key at context7.com).
+// User level: ~/.config/opencode/opencode.json(c)
+// Project level: <project>/opencode.json(c)
+//
+// Merge this "mcp" block, or run setup-mcp.sh / setup-mcp.ps1.
+// Both servers are keyless. To raise Context7's rate limits, add an
+// Authorization header with an API key from context7.com.
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "context7": {
-      "type": "remote",
-      "url": "https://mcp.context7.com/mcp",
-      "enabled": true
-    },
-    "deepwiki": {
-      "type": "remote",
-      "url": "https://mcp.deepwiki.com/mcp",
-      "enabled": true
+    "servers": {
+      "context7": {
+        "type": "remote",
+        "url": "https://mcp.context7.com/mcp"
+      },
+      "deepwiki": {
+        "type": "remote",
+        "url": "https://mcp.deepwiki.com/mcp"
+      }
     }
   }
 }
