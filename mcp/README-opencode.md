@@ -4,10 +4,10 @@ OpenCode reads MCP servers from the `mcp` block of its config file.
 
 | Level | File | Scope |
 | --- | --- | --- |
-| User | `~/.config/opencode/opencode.json` | Every project on the machine |
+| User | `~/.config/opencode/opencode.jsonc` | Every project on the machine |
 | Project | `opencode.json` in the project root | That project only; overrides the user file |
 
-Windows user-level path: `%USERPROFILE%\.config\opencode\opencode.json`.
+Windows user-level path: `%USERPROFILE%\.config\opencode\opencode.jsonc`.
 
 The repo's installer can add `context7` and `deepwiki` for you. Playwright is a
 local server, so add it by hand.
@@ -20,20 +20,19 @@ Open the file — or create it — and merge the `mcp` block:
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "context7": {
-      "type": "remote",
-      "url": "https://mcp.context7.com/mcp",
-      "enabled": true
-    },
-    "deepwiki": {
-      "type": "remote",
-      "url": "https://mcp.deepwiki.com/mcp",
-      "enabled": true
-    },
-    "playwright": {
-      "type": "local",
-      "command": ["npx", "-y", "@playwright/mcp@latest"],
-      "enabled": true
+    "servers": {
+      "context7": {
+        "type": "remote",
+        "url": "https://mcp.context7.com/mcp"
+      },
+      "deepwiki": {
+        "type": "remote",
+        "url": "https://mcp.deepwiki.com/mcp"
+      },
+      "playwright": {
+        "type": "local",
+        "command": ["npx", "-y", "@playwright/mcp@latest"]
+      }
     }
   }
 }
@@ -68,6 +67,6 @@ running OpenCode session after changing the file.
 
 ## If the installer skipped your file
 
-OpenCode accepts JSONC, so a hand-edited `opencode.json` may contain comments.
+OpenCode accepts JSONC, so a hand-edited `opencode.jsonc` may contain comments.
 The installer only rewrites plain JSON: when it finds comments, it leaves the
 file alone and says so. In that case paste the `mcp` block above by hand.
