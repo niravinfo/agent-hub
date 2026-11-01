@@ -1,7 +1,6 @@
 ---
 name: Code Reviewer
 description: Reviews any diff in a fresh context for quality, security, and maintainability; catch-all outside the C#, React, and TypeScript lanes
-mode: subagent
 permissions:
   - action: edit
     resource: "*"
