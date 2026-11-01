@@ -1,7 +1,6 @@
 ---
 name: C# Reviewer
 description: Reviews C#/.NET for conventions, async patterns, security, nullable types, and performance
-mode: subagent
 permissions:
   - action: edit
     resource: "*"
