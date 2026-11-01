@@ -1,7 +1,6 @@
 ---
 name: TypeScript Reviewer
 description: Reviews TypeScript/JavaScript for type safety, async correctness, and Node security
-mode: subagent
 permissions:
   - action: edit
     resource: "*"
