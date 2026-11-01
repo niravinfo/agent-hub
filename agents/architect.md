@@ -1,7 +1,6 @@
 ---
 name: Architect
 description: Designs system architecture, evaluates trade-offs, and records ADRs
-mode: subagent
 ---
 
 ## Prompt Defense Baseline
