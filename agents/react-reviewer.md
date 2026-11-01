@@ -1,7 +1,6 @@
 ---
 name: React Reviewer
 description: Reviews React/TSX for hooks, perf, a11y, RSC boundaries
-mode: subagent
 permissions:
   - action: edit
     resource: "*"
